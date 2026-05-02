@@ -279,7 +279,12 @@ def predict_row(index):
     model_input = _model_input(_base_model, sample_frame)
     base_probs = _base_model.predict_proba(model_input)[0]
     base_pred = str(_classes[int(np.argmax(base_probs))])
-    ns_label, fired_rules = apply_symbolic_rules(sample, base_pred, predicted_probs=base_probs)
+    ns_label, fired_rules, _ = apply_symbolic_rules(
+        sample,
+        base_pred,
+        predicted_probs=base_probs,
+        class_labels=_classes,
+    )
     ns_label = str(ns_label)
     confidence = float(np.max(base_probs))
 
@@ -375,12 +380,19 @@ def analyse_window(limit=750):
 
     subset_X = _X_test.head(limit)
     true_arr = _y_test.head(limit).tolist()
-    base_preds = [str(x) for x in _base_model.predict(_model_input(_base_model, subset_X))]
+    model_input = _model_input(_base_model, subset_X)
+    probabilities = _base_model.predict_proba(model_input)
+    base_preds = [str(x) for x in _base_model.predict(model_input)]
     ns_preds = []
     rule_hits = {}
 
     for i, pred in enumerate(base_preds):
-        ns_label, rules = apply_symbolic_rules(subset_X.iloc[i], pred)
+        ns_label, rules, _ = apply_symbolic_rules(
+            subset_X.iloc[i],
+            pred,
+            predicted_probs=probabilities[i],
+            class_labels=_classes,
+        )
         ns_preds.append(str(ns_label))
         for rule in rules:
             rule_id = str(rule.get("rule_id", "UNKNOWN"))

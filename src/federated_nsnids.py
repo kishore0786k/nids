@@ -4,7 +4,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 import joblib
 import os
-from typing import List, Dict
+from typing import List
 import copy
 
 class FederatedNeuroSymbolicNIDS:

@@ -5,7 +5,6 @@ from torch_geometric.nn import SAGEConv, global_mean_pool
 import torch.nn as nn
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 import joblib
 import os
 

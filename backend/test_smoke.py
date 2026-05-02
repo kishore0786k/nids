@@ -80,27 +80,29 @@ class NidsApiSmokeTests(unittest.TestCase):
         self.assertIn("ece", data["calibration"])
 
     def test_symbolic_adversarial_rule_uses_explicit_probabilities(self):
-        label, rules = apply_symbolic_rules(
+        label, rules, strength = apply_symbolic_rules(
             sample={},
             predicted_label="Benign",
             predicted_probs=[0.95, 0.05],
             adversarial_probs=[0.50, 0.50],
         )
         self.assertEqual(label, "Benign_ADV")
-        self.assertEqual(rules[-1]["rule_id"], "R3")
+        self.assertEqual(rules[-1]["rule_id"], "R5_ADVERSARIAL_PROBABILITY_DRIFT")
         self.assertEqual(rules[-1]["old_label"], "Benign")
         self.assertEqual(rules[-1]["new_label"], "Benign_ADV")
+        self.assertGreater(strength, 0.0)
 
     def test_symbolic_zero_day_audit_trail_records_previous_label(self):
-        label, rules = apply_symbolic_rules(
+        label, rules, strength = apply_symbolic_rules(
             sample={"ttl_variance": 10},
             predicted_label="Scanning",
             gnn_anomaly_score=0.95,
         )
         self.assertEqual(label, "ZeroDay")
-        self.assertEqual(rules[-1]["rule_id"], "R4")
+        self.assertEqual(rules[-1]["rule_id"], "R6_ZERO_DAY_ANOMALY")
         self.assertEqual(rules[-1]["old_label"], "Scanning")
         self.assertEqual(rules[-1]["new_label"], "ZeroDay")
+        self.assertGreater(strength, 0.0)
 
     def test_missing_model_file_has_clear_error(self):
         old_path = engine.MODEL_PATH

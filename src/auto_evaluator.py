@@ -1,9 +1,5 @@
 import pandas as pd
-import numpy as np
-from sklearn.metrics import classification_report, roc_auc_score
-import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import classification_report
 from unified_nsnids_pipeline import UnifiedNeuroSymbolicNIDS
 import os
 

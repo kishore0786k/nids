@@ -115,7 +115,12 @@ elif page == "🔍 Single‑Flow Analysis":
     base_pred = classes[np.argmax(base_probs)]
 
     # neuro‑symbolic refinement
-    ns_label, fired_rules = apply_symbolic_rules(sample, base_pred)
+    ns_label, fired_rules, rule_strength = apply_symbolic_rules(
+        sample,
+        base_pred,
+        predicted_probs=base_probs,
+        class_labels=classes,
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -127,9 +132,9 @@ elif page == "🔍 Single‑Flow Analysis":
             st.markdown(f"**Robust MLP prediction:** `{robust_pred}`")
 
         st.markdown("#### Symbolic explanation")
-        if fired_rules and fired_rules[0].get("ruleid", "NONE") != "NONE":
+        if fired_rules and fired_rules[0].get("rule_id", "NONE") != "NONE":
             for r in fired_rules:
-                rid = r.get("ruleid", "R?")
+                rid = r.get("rule_id", "R?")
                 reason = r.get("reason", "")
                 st.markdown(f"- **{rid}** – {reason}")
         else:
@@ -167,13 +172,19 @@ elif page == "⚡ Model Comparison":
     subset_y = y.head(n_samples)
 
     # baseline predictions
+    base_probs = base_model.predict_proba(subset_X)
     base_preds = base_model.predict(subset_X)
 
     # neuro‑symbolic predictions
     ns_preds = []
     for i in range(len(subset_X)):
         p = base_preds[i]
-        ns_label, _ = apply_symbolic_rules(subset_X.iloc[i], p)
+        ns_label, _, _ = apply_symbolic_rules(
+            subset_X.iloc[i],
+            p,
+            predicted_probs=base_probs[i],
+            class_labels=classes,
+        )
         ns_preds.append(ns_label)
 
     df_comp = pd.DataFrame(

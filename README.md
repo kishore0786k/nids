@@ -2,6 +2,42 @@
 
 Publication-oriented intrusion detection project for NF-ToN-IoT-V2 NetFlow traffic.
 
+## Research Contribution
+
+This project contributes a confidence-aware neuro-symbolic NIDS: an MLP detects NetFlow attack classes, while percentile-calibrated symbolic rules target weak false-negative regions such as benign-looking scanning flows. The rule layer supports hard override and soft probability fusion, records auditable rule traces, and reports rule firing rate, prediction-change rate, false-negative reduction, per-class recall/F1 deltas, and ablation results.
+
+Novelty claim: instead of adding passive hand-written rules, the system calibrates symbolic thresholds from the training distribution and fuses rule evidence with neural probabilities so symbolic logic measurably changes predictions and improves targeted attack detection.
+
+## Publication Experiment
+
+```bat
+venv\Scripts\python.exe -m src.experiment_runner --fusion-mode soft --alpha 0.65
+```
+
+Fast smoke run:
+
+```bat
+venv\Scripts\python.exe -m src.experiment_runner --quick-limit 500
+```
+
+The runner uses `data/train_processed.csv` and `data/test_processed.csv`, evaluates RandomForest, MLP, NeuroSymbolic hard fusion, NeuroSymbolic soft fusion, prints classification reports/confusion matrices, and saves `results/publication_experiment.json`.
+
+Publication artifacts are saved under `results/`:
+
+- `publication_experiment.json`
+- `model_comparison.csv`
+- `attack_class_deltas.csv`
+- `rule_diagnostics.csv`
+- `confusion_mlp.csv`
+- `confusion_neurosymbolic.csv`
+- `mcnemar_mlp_vs_neurosymbolic.csv`
+
+Optional multi-seed run:
+
+```bat
+venv\Scripts\python.exe -m src.experiment_runner --seeds 42,43,44
+```
+
 ## Run Dashboard
 
 ```bat

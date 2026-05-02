@@ -1,10 +1,9 @@
 import pandas as pd
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report
 import joblib
 import json
 import os
-import numpy as np
 
 # paths relative to src/
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

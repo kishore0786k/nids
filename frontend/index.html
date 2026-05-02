@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Neuro-Symbolic NIDS Research Dashboard</title>
   <meta name="description" content="Interactive research dashboard for neuro-symbolic network intrusion detection and adaptive cyber defence." />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260502-package" />
+  <!-- Prefer Flask-rendered path but mark for fallback if template not processed -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260502-package" data-static-fallback="css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -338,6 +339,29 @@
     </main>
   </div>
 
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260502-package"></script>
+  <!-- dashboard.js: use Flask url_for when templated; otherwise fallback injected below -->
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260502-buttons" data-dashboard-src="true"></script>
+
+  <!-- Fallback loader: if the Jinja {{ url_for(...) }} tokens were not rendered (e.g. file:// or static preview),
+       replace/inject local static paths so CSS/JS actually load and event listeners can attach.
+       This runs after the DOM markup and will not interfere when Flask renders url_for as expected. -->
+  <script>
+    (function(){
+      function needsFallback(str){ return typeof str === 'string' && str.indexOf('{{') !== -1; }
+      // CSS fallback
+      var cssLink = document.querySelector('link[data-static-fallback="css"]');
+      if (cssLink && needsFallback(cssLink.getAttribute('href'))) {
+        cssLink.href = 'static/css/style.css?v=20260502-package';
+      }
+      // JS fallback: if the templated script src was not rendered, inject a working script tag
+      var dashScript = document.querySelector('script[data-dashboard-src="true"]');
+      if (dashScript && needsFallback(dashScript.getAttribute('src'))) {
+        var s = document.createElement('script');
+        s.src = 'static/js/dashboard.js?v=20260502-buttons';
+        s.defer = true;
+        document.body.appendChild(s);
+      }
+    })();
+  </script>
 </body>
 </html>

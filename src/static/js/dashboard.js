@@ -34,6 +34,32 @@ function $$(selector) {
   return Array.from(document.querySelectorAll(selector));
 }
 
+function setStatus(message) {
+  const el = $("#cache-status");
+  if (el) el.textContent = message;
+}
+
+function showActionError(error) {
+  console.error(error);
+  setStatus(`Action failed: ${error.message || error}`);
+}
+
+function bindAsyncClick(selector, statusText, handler) {
+  const el = $(selector);
+  if (!el) return;
+  el.addEventListener("click", async event => {
+    try {
+      el.disabled = true;
+      setStatus(statusText);
+      await handler(event);
+    } catch (error) {
+      showActionError(error);
+    } finally {
+      el.disabled = false;
+    }
+  });
+}
+
 function pct(value, digits = 1) {
   return `${(Number(value || 0) * 100).toFixed(digits)}%`;
 }
@@ -505,8 +531,8 @@ function exportMatrixCsv() {
 }
 
 function setupControls() {
-  $("#btn-refresh").addEventListener("click", loadDashboard);
-  $("#btn-backend-refresh").addEventListener("click", async () => {
+  bindAsyncClick("#btn-refresh", "Refreshing dashboard", loadDashboard);
+  bindAsyncClick("#btn-backend-refresh", "Refreshing backend status", async () => {
     state.backend = await getJson("/api/backend/status");
     renderBackendStatus();
   });
@@ -520,16 +546,16 @@ function setupControls() {
     renderOverview();
     renderAnalysis();
   });
-  $("#btn-analyse-flow").addEventListener("click", () => analyseFlow());
-  $("#btn-random-flow").addEventListener("click", () => analyseFlow(Math.floor(Math.random() * (state.maxIndex + 1))));
-  $("#btn-contain-flow").addEventListener("click", async () => {
+  bindAsyncClick("#btn-analyse-flow", "Analysing flow", () => analyseFlow());
+  bindAsyncClick("#btn-random-flow", "Selecting random flow", () => analyseFlow(Math.floor(Math.random() * (state.maxIndex + 1))));
+  bindAsyncClick("#btn-contain-flow", "Applying simulated containment", async () => {
     if (!state.incident) return;
     const result = await postJson("/api/defense/contain", { incident_id: state.incident.incident_id });
     state.incident = result.incident;
     $("#decision-action").textContent = result.message;
     renderIncident(result.incident);
   });
-  $("#btn-defense-status").addEventListener("click", async () => {
+  bindAsyncClick("#btn-defense-status", "Loading defense status", async () => {
     const status = await getJson("/api/defense/status");
     $("#cache-status").textContent = `${status.total_incidents} backend incidents tracked`;
   });
@@ -561,7 +587,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupControls();
   setupExports();
   loadDashboard().catch(error => {
-    console.error(error);
-    $("#cache-status").textContent = "Dashboard data failed to load";
+    showActionError(error);
+    setStatus("Dashboard data failed to load");
   });
 });

@@ -1,0 +1,136 @@
+{
+  "protocol": {
+    "train_path": "data\\train_processed.csv",
+    "test_path": "data\\test_processed.csv",
+    "train_rows": 2000,
+    "test_rows": 500,
+    "fusion_mode": "soft",
+    "alpha": 0.65,
+    "quick_limit": 500,
+    "seed": 42
+  },
+  "metrics": {
+    "RandomForest": {
+      "accuracy": 0.902,
+      "precision": 0.9029362285639592,
+      "recall": 0.895702113081592,
+      "f1": 0.8979951568536036
+    },
+    "MLP": {
+      "accuracy": 0.862,
+      "precision": 0.8648094699140121,
+      "recall": 0.8528840930514205,
+      "f1": 0.8553822523002067
+    },
+    "MLP_NoRules": {
+      "accuracy": 0.862,
+      "precision": 0.8648094699140121,
+      "recall": 0.8528840930514205,
+      "f1": 0.8553822523002067
+    },
+    "NeuroSymbolic_Hard": {
+      "accuracy": 0.862,
+      "precision": 0.8648094699140121,
+      "recall": 0.8528840930514205,
+      "f1": 0.8553822523002067
+    },
+    "NeuroSymbolic": {
+      "accuracy": 0.862,
+      "precision": 0.8648094699140121,
+      "recall": 0.8528840930514205,
+      "f1": 0.8553822523002067
+    }
+  },
+  "rule_diagnostics": {
+    "samples": 500,
+    "rules_fired": 87,
+    "rules_fired_pct": 17.4,
+    "predictions_changed": 0,
+    "predictions_changed_pct": 0.0,
+    "accuracy_before_rules": 0.862,
+    "accuracy_after_rules": 0.862,
+    "accuracy_delta": 0.0,
+    "macro_f1_before_rules": 0.8553822523002067,
+    "macro_f1_after_rules": 0.8553822523002067,
+    "macro_f1_delta": 0.0,
+    "mean_rule_strength": 0.13725587,
+    "rule_counts": {
+      "R1_HIGH_PACKET_RATE_BURST": 87
+    },
+    "applied_rule_counts": {},
+    "false_negatives_before": 7,
+    "false_negatives_after": 7
+  },
+  "attack_class_deltas": [
+    {
+      "class": "Backdoor",
+      "base_recall": 0.9863013698630136,
+      "ns_recall": 0.9863013698630136,
+      "recall_delta": 0.0,
+      "base_f1": 0.9863013698630136,
+      "ns_f1": 0.9863013698630136,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "Benign",
+      "base_recall": 0.821917808219178,
+      "ns_recall": 0.821917808219178,
+      "recall_delta": 0.0,
+      "base_f1": 0.8571428571428571,
+      "ns_f1": 0.8571428571428571,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "DoS/DDoS",
+      "base_recall": 0.7796610169491526,
+      "ns_recall": 0.7796610169491526,
+      "recall_delta": 0.0,
+      "base_f1": 0.7479674796747967,
+      "ns_f1": 0.7479674796747967,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "Injection",
+      "base_recall": 0.6923076923076923,
+      "ns_recall": 0.6923076923076923,
+      "recall_delta": 0.0,
+      "base_f1": 0.72,
+      "ns_f1": 0.72,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "Password",
+      "base_recall": 0.7761194029850746,
+      "ns_recall": 0.7761194029850746,
+      "recall_delta": 0.0,
+      "base_f1": 0.859504132231405,
+      "ns_f1": 0.859504132231405,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "Scanning",
+      "base_recall": 0.975609756097561,
+      "ns_recall": 0.975609756097561,
+      "recall_delta": 0.0,
+      "base_f1": 0.9815950920245399,
+      "ns_f1": 0.9815950920245399,
+      "f1_delta": 0.0
+    },
+    {
+      "class": "XSS/MITM",
+      "base_recall": 0.9382716049382716,
+      "ns_recall": 0.9382716049382716,
+      "recall_delta": 0.0,
+      "base_f1": 0.8351648351648352,
+      "ns_f1": 0.8351648351648352,
+      "f1_delta": 0.0
+    }
+  ],
+  "mcnemar_mlp_vs_neurosymbolic": {
+    "mlp_correct_ns_wrong": 0,
+    "mlp_wrong_ns_correct": 0,
+    "chi2": 0.0,
+    "p_value": 1.0
+  },
+  "novelty_claim": "A confidence-aware neuro-symbolic NIDS that calibrates symbolic rules from training percentiles and fuses them with neural probabilities to reduce attack false negatives with auditable rule traces."
+}
