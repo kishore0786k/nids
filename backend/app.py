@@ -6,6 +6,7 @@ logic is isolated in nids_engine.py.
 """
 
 import os
+import logging
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
@@ -21,6 +22,7 @@ app = Flask(
     static_url_path="/static",
 )
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @app.errorhandler(engine.ResourceLoadError)
@@ -77,6 +79,15 @@ def api_novelty():
         request.args.get("limit", 2000, type=int),
         request.args.get("alpha", 0.10, type=float),
     ))
+
+
+@app.route("/api/run-all", methods=["GET", "POST"])
+def api_run_all():
+    payload = request.get_json(silent=True) or {}
+    limit = payload.get("limit", request.args.get("limit", 750, type=int))
+    alpha = payload.get("alpha", request.args.get("alpha", 0.10, type=float))
+    flow_idx = payload.get("flow_idx", request.args.get("flow_idx", 0, type=int))
+    return jsonify(engine.run_all(limit=limit, alpha=alpha, flow_idx=flow_idx))
 
 
 @app.route("/api/backend/status")

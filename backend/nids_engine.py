@@ -478,6 +478,40 @@ def _attack_recall_deltas(
     return rows
 
 
+def _novelty_examples(
+    true_arr: list[str],
+    base_preds: np.ndarray,
+    ns_preds: np.ndarray,
+    rule_traces: list[list[dict[str, Any]]],
+    probabilities: np.ndarray,
+    max_examples: int = 6,
+) -> list[dict[str, Any]]:
+    examples: list[dict[str, Any]] = []
+    for idx, (truth, base_label, ns_label) in enumerate(zip(true_arr, base_preds, ns_preds)):
+        if str(base_label) == str(ns_label):
+            continue
+        if not (is_attack(truth) and not is_attack(base_label) and is_attack(ns_label)):
+            continue
+        applied = [rule for rule in rule_traces[idx] if rule.get("applied")]
+        rule = applied[0] if applied else next((r for r in rule_traces[idx] if r.get("rule_id") != "NONE"), {})
+        examples.append(
+            {
+                "sample": int(idx),
+                "true_label": str(truth),
+                "mlp_label": str(base_label),
+                "neuro_symbolic_label": str(ns_label),
+                "exact_correction": bool(str(ns_label) == str(truth)),
+                "confidence": json_number(float(np.max(probabilities[idx])), 6),
+                "rule_id": rule.get("rule_id"),
+                "rule_strength": rule.get("strength"),
+                "explanation": rule.get("reason"),
+            }
+        )
+        if len(examples) >= max_examples:
+            break
+    return examples
+
+
 def _rule_analytics(
     true_arr: list[str],
     base_preds: np.ndarray,
@@ -512,19 +546,31 @@ def _rule_analytics(
     true_benign = ~true_attack
     base_benign = np.asarray([not is_attack(label) for label in base], dtype=bool)
     ns_benign = np.asarray([not is_attack(label) for label in ns], dtype=bool)
+    base_attack = ~base_benign
+    ns_attack = ~ns_benign
     false_neg_before = true_attack & base_benign
     false_neg_after = true_attack & ns_benign
     fn_attack_rescues = false_neg_before & ~ns_benign
     exact_corrections = false_neg_before & (ns == y)
     introduced_fp = true_benign & base_benign & ~ns_benign
+    base_attack_recall = float(np.sum(true_attack & base_attack) / max(1, true_attack.sum()))
+    ns_attack_recall = float(np.sum(true_attack & ns_attack) / max(1, true_attack.sum()))
+    changed_count = int(changed.sum())
+    triggered_rate = float(triggered_samples / max(1, sample_count))
+    changed_rate = float(np.mean(changed)) if sample_count else 0.0
 
     return {
         "samples": int(sample_count),
         "triggered_samples": int(triggered_samples),
         "applied_samples": int(applied_samples),
-        "changed_predictions": int(changed.sum()),
-        "changed_prediction_rate": json_number(float(np.mean(changed)) if sample_count else 0.0, 6),
+        "changed_predictions": changed_count,
+        "prediction_change_count": changed_count,
+        "changed_prediction_rate": json_number(changed_rate, 6),
+        "prediction_change_rate": json_number(changed_rate, 6),
         "rule_trigger_count": int(sum(active_counts.values())),
+        "rule_trigger_sample_count": int(triggered_samples),
+        "rule_trigger_rate": json_number(triggered_rate, 6),
+        "rule_trigger_pct": json_number(100.0 * triggered_rate, 4),
         "per_rule_trigger_count": dict(active_counts),
         "per_rule_applied_count": dict(applied_counts),
         "per_rule_trigger_frequency": {
@@ -536,6 +582,9 @@ def _rule_analytics(
         "false_negative_attack_rescues": int(fn_attack_rescues.sum()),
         "false_negative_exact_label_corrections": int(exact_corrections.sum()),
         "introduced_benign_false_positives": int(introduced_fp.sum()),
+        "binary_attack_recall_before": json_number(base_attack_recall, 6),
+        "binary_attack_recall_after": json_number(ns_attack_recall, 6),
+        "binary_attack_recall_delta": json_number(ns_attack_recall - base_attack_recall, 6),
         "mean_rule_strength": json_number(float(np.mean(strengths)) if strengths else 0.0, 6),
         "attack_class_recall_delta": _attack_recall_deltas(_classes, base_report, ns_report),
     }
@@ -570,6 +619,10 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
     ns_acc = float(np.mean(ns_preds == np.asarray(true_arr)))
     labels = _classes
     analytics = _rule_analytics(true_arr, base_preds, ns_preds, rule_traces, strengths, base_report, ns_report)
+    base_macro_f1 = float(base_report.get("macro avg", {}).get("f1-score", 0.0))
+    ns_macro_f1 = float(ns_report.get("macro avg", {}).get("f1-score", 0.0))
+    analytics["delta_accuracy"] = json_number(ns_acc - base_acc, 6)
+    analytics["delta_f1"] = json_number(ns_macro_f1 - base_macro_f1, 6)
     ns_attack = np.asarray([is_attack(label) for label in ns_preds], dtype=bool)
     base_attack = np.asarray([is_attack(label) for label in base_preds], dtype=bool)
     true_attack = np.asarray([is_attack(label) for label in true_arr], dtype=bool)
@@ -596,6 +649,24 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
     ]
 
     active_rule_counts = analytics["per_rule_trigger_count"]
+    examples = _novelty_examples(true_arr, base_preds, ns_preds, rule_traces, probabilities)
+    novelty_proof = {
+        "ns_beats_mlp_accuracy": bool(ns_acc > base_acc),
+        "ns_beats_mlp_macro_f1": bool(ns_macro_f1 > base_macro_f1),
+        "attack_recall_improved": bool((analytics.get("binary_attack_recall_delta") or 0) > 0),
+        "max_attack_class_recall_delta": json_number(
+            max((row["recall_delta"] for row in analytics["attack_class_recall_delta"]), default=0.0),
+            6,
+        ),
+        "verdict": (
+            "proven"
+            if ns_acc > base_acc
+            or ns_macro_f1 > base_macro_f1
+            or (analytics.get("binary_attack_recall_delta") or 0) > 0
+            else "not_proven_for_this_window"
+        ),
+        "examples": examples,
+    }
     live_metrics = {
         "labels": ["Accuracy", "Precision", "Recall", "F1"],
         "existing": _metric_vector(base_report, base_acc),
@@ -623,6 +694,7 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
         },
         "rule_hits": {"labels": list(active_rule_counts.keys()), "values": [int(v) for v in active_rule_counts.values()]},
         "rule_analytics": analytics,
+        "novelty_proof": novelty_proof,
         "defense": {
             "analysed_flows": limit,
             "attack_flows": int(true_attack.sum()),
@@ -676,11 +748,13 @@ def _log_chart_step(logs: list[str], message: str) -> None:
 
 def chart_data(limit=2000):
     load_resources()
+    requested_limit = limit
     limit = _coerce_int(limit, default=2000, minimum=100, maximum=min(MAX_CHART_LIMIT, len(_X_test)))
     if limit in _chart_cache:
         return _chart_cache[limit]
 
     logs: list[str] = []
+    _log_chart_step(logs, f"Chart request received: requested_limit={requested_limit}, sanitized_limit={limit}.")
     evaluated = _evaluate_window(limit)
     analysis = evaluated["public"]
     true_arr = evaluated["true_arr"]
@@ -735,6 +809,24 @@ def chart_data(limit=2000):
 
     _chart_cache[limit] = {
         "limit": limit,
+        "debug": {
+            "input_parameters": {"requested_limit": requested_limit, "sanitized_limit": limit},
+            "api_output_summary": {
+                "curve_points": len(windows),
+                "classes": len(_classes),
+                "rule_trigger_count": analysis["rule_analytics"]["rule_trigger_count"],
+                "prediction_change_count": analysis["rule_analytics"]["prediction_change_count"],
+            },
+            "datasets_changed": [
+                "metric_comparison",
+                "improvement_curve",
+                "per_class",
+                "confidence_histogram",
+                "detection_counts",
+                "class_error_rate",
+                "rule_hits",
+            ],
+        },
         "metric_comparison": {
             "labels": ["Accuracy", "Precision", "Recall", "F1"],
             "existing": analysis["window_metrics"]["baseline_mlp"],
@@ -946,6 +1038,84 @@ def novelty_data(limit=2000, alpha=0.10):
     return _novelty_cache[cache_key]
 
 
+def _file_signature(path: str | Path) -> dict[str, Any]:
+    path_obj = _as_path(path)
+    if not path_obj.exists():
+        return {"path": str(path_obj), "exists": False}
+    stat = path_obj.stat()
+    return {
+        "path": str(path_obj),
+        "exists": True,
+        "size": int(stat.st_size),
+        "mtime": json_number(stat.st_mtime, 6),
+    }
+
+
+def run_all(limit=750, alpha=0.10, flow_idx=0) -> dict[str, Any]:
+    """Single-click recomputation entry point for the dashboard."""
+    load_resources()
+    requested = {"limit": limit, "alpha": alpha, "flow_idx": flow_idx}
+    clean_limit = _coerce_int(limit, default=750, minimum=MIN_ANALYSIS_LIMIT, maximum=min(MAX_ANALYSIS_LIMIT, len(_y_test) if _y_test is not None else MAX_ANALYSIS_LIMIT))
+    clean_alpha = min(0.40, max(0.01, float(alpha) if alpha is not None else 0.10))
+    clean_flow_idx = _coerce_int(flow_idx, default=0, minimum=0, maximum=len(_X_test) - 1 if _X_test is not None else 0)
+
+    LOGGER.info("Run-all requested with %s", requested)
+    started = perf_counter()
+    _clear_caches()
+    overview = overview_data()
+    research = analyse_window(clean_limit)
+    charts = chart_data(clean_limit)
+    novelty = novelty_data(clean_limit, clean_alpha)
+    defense = analyse_defense(clean_flow_idx)
+    backend = backend_status()
+    elapsed_ms = (perf_counter() - started) * 1000.0
+
+    debug = {
+        "input_parameters": {
+            **requested,
+            "sanitized_limit": clean_limit,
+            "sanitized_alpha": json_number(clean_alpha, 4),
+            "sanitized_flow_idx": clean_flow_idx,
+        },
+        "api_output_summary": {
+            "overview_samples": overview["total_samples"],
+            "research_window": research["limit"],
+            "chart_window": charts["limit"],
+            "rule_trigger_count": research["rule_analytics"]["rule_trigger_count"],
+            "prediction_change_count": research["rule_analytics"]["prediction_change_count"],
+            "delta_accuracy": research["rule_analytics"]["delta_accuracy"],
+            "delta_f1": research["rule_analytics"]["delta_f1"],
+            "novelty_verdict": research["novelty_proof"]["verdict"],
+            "elapsed_ms": json_number(elapsed_ms, 3),
+        },
+        "datasets_changed": [
+            "overview",
+            "research_metrics",
+            "charts",
+            "defense_analysis",
+            "novelty_panel",
+            "backend_status",
+        ],
+        "resource_signatures": {
+            "train": _file_signature(TRAIN_PATH),
+            "test": _file_signature(TEST_PATH),
+            "model": _file_signature(MODEL_PATH),
+        },
+    }
+    LOGGER.info("Run-all output summary: %s", debug["api_output_summary"])
+    return {
+        "ok": True,
+        "message": "Full pipeline recomputed from model, data, and live rule evaluation.",
+        "overview": overview,
+        "research": research,
+        "charts": charts,
+        "novelty": novelty,
+        "defense": defense,
+        "backend": backend,
+        "debug": debug,
+    }
+
+
 def overview_data():
     load_resources()
     report = _metrics.get("classification_report", {})
@@ -985,6 +1155,7 @@ def backend_status():
         "robust_model_loaded": _robust_model is not None,
         "symbolic_context_loaded": _symbolic_context is not None,
         "symbolic_calibration": (_symbolic_context or {}).get("calibration", {}),
+        "symbolic_rule_summary": (_symbolic_context or {}).get("learned_rescue_summary", {}),
         "evidence_separation": {
             "live_evaluation": "computed by nids_engine.py from model predictions and processed test data",
             "paper_summary": "loaded from results/metrics.json only when explicitly requested",

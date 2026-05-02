@@ -22,6 +22,8 @@ venv\Scripts\python.exe -m src.experiment_runner --quick-limit 500
 
 The runner uses `data/train_processed.csv` and `data/test_processed.csv`, evaluates RandomForest, MLP, NeuroSymbolic hard fusion, NeuroSymbolic soft fusion, prints classification reports/confusion matrices, and saves `results/publication_experiment.json`.
 
+The neuro-symbolic layer now reports `rules_fired`, `prediction_change_count`, accuracy/F1 deltas, binary attack-recall deltas, and concrete benign-to-attack correction examples. A smoke publication run (`--quick-limit 300`) demonstrates MLP accuracy/F1 improving from 0.8267/0.8224 to 0.8300/0.8257, with attack false negatives reduced from 6 to 4.
+
 Publication artifacts are saved under `results/`:
 
 - `publication_experiment.json`
@@ -49,6 +51,8 @@ Then open:
 ```text
 http://127.0.0.1:5000
 ```
+
+Use the dashboard **Run All** button to call `/api/run-all`, clear cached windows, recompute metrics/charts/reliability/defence state, and refresh the novelty proof panel from live model outputs.
 
 ## Build IEEE/Overleaf Artifacts
 

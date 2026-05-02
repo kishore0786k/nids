@@ -9,6 +9,7 @@ const state = {
   charts: {},
   maxIndex: 0,
   architectureTimer: null,
+  lastRunDebug: null,
 };
 
 const colors = {
@@ -63,6 +64,11 @@ function bindAsyncClick(selector, statusText, handler) {
 
 function pct(value, digits = 1) {
   return `${(Number(value || 0) * 100).toFixed(digits)}%`;
+}
+
+function signedPct(value, digits = 2) {
+  const number = Number(value || 0) * 100;
+  return `${number >= 0 ? "+" : ""}${number.toFixed(digits)} pts`;
 }
 
 async function getJson(url) {
@@ -179,15 +185,43 @@ function renderOverview() {
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: "58%" },
   });
+  renderImpactProof();
+  renderArchitectureTelemetry();
   renderBackendStatus();
+}
+
+function renderImpactProof() {
+  const r = state.research;
+  if (!r || !r.rule_analytics) return;
+  const analytics = r.rule_analytics;
+  const proof = r.novelty_proof || {};
+  $("#impact-verdict").textContent = proof.verdict === "proven" ? "proven" : "needs larger window";
+  $("#impact-verdict").classList.toggle("good", proof.verdict === "proven");
+  $("#impact-trigger-rate").textContent = pct(analytics.rule_trigger_rate || 0);
+  $("#impact-trigger-count").textContent = `${analytics.rule_trigger_count || 0} rule firings`;
+  $("#impact-change-rate").textContent = pct(analytics.prediction_change_rate || 0);
+  $("#impact-change-count").textContent = `${analytics.prediction_change_count || 0} changed predictions`;
+  $("#impact-delta-accuracy").textContent = signedPct(analytics.delta_accuracy || 0);
+  $("#impact-delta-f1").textContent = signedPct(analytics.delta_f1 || 0);
+  $("#impact-attack-recall").textContent = signedPct(analytics.binary_attack_recall_delta || 0);
+  $("#impact-fn-rescues").textContent = analytics.false_negative_attack_rescues || 0;
+  const examples = proof.examples || [];
+  $("#impact-examples").innerHTML = examples.length ? examples.map(item => `
+    <div class="example-item ${item.exact_correction ? "exact" : ""}">
+      <strong>Sample ${item.sample}: ${item.mlp_label} -> ${item.neuro_symbolic_label}</strong>
+      <span>true=${item.true_label} | ${item.rule_id} | strength=${Number(item.rule_strength || 0).toFixed(3)}</span>
+      <p>${item.explanation || "Rule explanation unavailable."}</p>
+    </div>
+  `).join("") : `<div class="example-item"><strong>No correction examples in this window</strong><span>Increase the sample window to inspect more rare failure regions.</span></div>`;
 }
 
 function renderAnalysis() {
   const r = state.research;
   const c = state.chartData;
-  $("#cache-status").textContent = `${r.limit.toLocaleString()} flows cached`;
+  $("#cache-status").textContent = `${r.limit.toLocaleString()} flows computed`;
   $("#sample-window-value").textContent = r.limit;
   $("#sample-window").value = r.limit;
+  if (c.debug) console.info("Chart recompute debug", c.debug);
 
   makeChart("rulesChart", "chart-rules", {
     type: "bar",
@@ -302,6 +336,8 @@ function renderAnalysis() {
 
   renderMatrix(r.classes, r.confusion_matrix);
   renderAuditTable(r.rows);
+  renderImpactProof();
+  renderArchitectureTelemetry();
 }
 
 function renderBackendStatus() {
@@ -313,6 +349,7 @@ function renderBackendStatus() {
     ["Rows", Number(b.test_rows || 0).toLocaleString()],
     ["Features", b.feature_count],
     ["Classes", (b.classes || []).join(", ")],
+    ["Learned rescue rules", b.symbolic_rule_summary?.count ?? "not loaded"],
     ["Analysis cache", (b.cached_analysis_windows || []).join(", ") || "cold"],
     ["Chart cache", (b.cached_chart_windows || []).join(", ") || "cold"],
     ["Incidents", b.incident_count],
@@ -506,6 +543,19 @@ function renderDefense(flow, incident) {
     ["Symbolic trace", rules],
     ...topFeatures,
   ].map(([key, value]) => `<div class="evidence-item"><span>${key}</span><strong>${value}</strong></div>`).join("");
+  renderArchitectureTelemetry();
+}
+
+function renderArchitectureTelemetry() {
+  if (!state.research) return;
+  const windowEl = $("#arch-window");
+  const rulesEl = $("#arch-rules");
+  const changesEl = $("#arch-changes");
+  if (!windowEl || !rulesEl || !changesEl) return;
+  const analytics = state.research.rule_analytics || {};
+  windowEl.textContent = Number(state.research.limit || 0).toLocaleString();
+  rulesEl.textContent = Number(analytics.rule_trigger_count || 0).toLocaleString();
+  changesEl.textContent = Number(analytics.prediction_change_count || 0).toLocaleString();
 }
 
 function renderIncident(incident) {
@@ -611,6 +661,7 @@ function exportMatrixCsv() {
 
 function setupControls() {
   bindAsyncClick("#btn-refresh", "Refreshing dashboard", loadDashboard);
+  bindAsyncClick("#btn-run-all", "Running full pipeline", runAll);
   bindAsyncClick("#btn-backend-refresh", "Refreshing backend status", async () => {
     state.backend = await getJson("/api/backend/status");
     renderBackendStatus();
@@ -669,7 +720,38 @@ async function loadDashboard() {
   await analyseFlow(0);
   setArchitectureStage(0);
   startArchitectureLoop();
-  $("#cache-status").textContent = `${research.limit.toLocaleString()} flows cached`;
+  $("#cache-status").textContent = `${research.limit.toLocaleString()} flows computed`;
+}
+
+async function runAll() {
+  const button = $("#btn-run-all");
+  const feedback = $("#run-all-feedback");
+  const limit = $("#sample-window")?.value || 750;
+  const alpha = $("#novelty-alpha")?.value || 0.10;
+  const flowIdx = $("#flow-index")?.value || 0;
+  button.classList.add("loading");
+  feedback.textContent = "Recomputing...";
+  try {
+    const result = await postJson("/api/run-all", { limit, alpha, flow_idx: flowIdx });
+    state.overview = result.overview;
+    state.research = result.research;
+    state.chartData = result.charts;
+    state.novelty = result.novelty;
+    state.backend = result.backend;
+    state.flow = result.defense.flow;
+    state.incident = result.defense.incident;
+    state.lastRunDebug = result.debug;
+    renderOverview();
+    renderAnalysis();
+    renderNovelty();
+    renderDefense(state.flow, state.incident);
+    renderBackendStatus();
+    feedback.textContent = `Run All complete in ${Number(result.debug?.api_output_summary?.elapsed_ms || 0).toFixed(0)} ms`;
+    setStatus(`Run All recomputed ${state.research.limit.toLocaleString()} flows`);
+    console.info("Run All debug", result.debug);
+  } finally {
+    button.classList.remove("loading");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {

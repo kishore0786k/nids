@@ -6,7 +6,7 @@
   <title>Neuro-Symbolic NIDS Research Dashboard</title>
   <meta name="description" content="Interactive research dashboard for neuro-symbolic network intrusion detection and adaptive cyber defence." />
   <!-- Prefer Flask-rendered path but mark for fallback if template not processed -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260502-package" data-static-fallback="css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260502-runall3" data-static-fallback="css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -43,8 +43,10 @@
           <p>Fast browser-native visualisation, proposed-vs-existing comparison, and dynamic defence response.</p>
         </div>
         <div class="topbar-actions">
+          <span class="run-feedback" id="run-all-feedback" aria-live="polite">Ready</span>
           <button class="btn ghost" id="btn-export-json">Export JSON</button>
           <button class="btn primary" id="btn-refresh">Refresh Analysis</button>
+          <button class="btn accent" id="btn-run-all">Run All</button>
         </div>
       </header>
 
@@ -75,6 +77,22 @@
           <article class="kpi"><span>Attack classes</span><strong id="kpi-classes">--</strong><small>Multi-class threat taxonomy</small></article>
           <article class="kpi"><span>Test samples</span><strong id="kpi-samples">--</strong><small>Cached for fast navigation</small></article>
         </div>
+
+        <section class="panel impact-panel">
+          <div class="panel-head">
+            <div><h3>Neuro-Symbolic Impact Proof</h3><p>Live rule instrumentation, prediction deltas, and example corrections from the selected window.</p></div>
+            <strong class="verdict" id="impact-verdict">pending</strong>
+          </div>
+          <div class="impact-grid">
+            <div class="impact-stat"><span>Rules triggered</span><strong id="impact-trigger-rate">--</strong><small id="impact-trigger-count">--</small></div>
+            <div class="impact-stat"><span>Predictions changed</span><strong id="impact-change-rate">--</strong><small id="impact-change-count">--</small></div>
+            <div class="impact-stat"><span>Delta accuracy</span><strong id="impact-delta-accuracy">--</strong><small>NS minus MLP</small></div>
+            <div class="impact-stat"><span>Delta macro F1</span><strong id="impact-delta-f1">--</strong><small>NS minus MLP</small></div>
+            <div class="impact-stat"><span>Attack recall delta</span><strong id="impact-attack-recall">--</strong><small>Binary attack recall</small></div>
+            <div class="impact-stat"><span>FN rescues</span><strong id="impact-fn-rescues">--</strong><small>Benign to attack</small></div>
+          </div>
+          <div class="example-list" id="impact-examples"></div>
+        </section>
 
         <section class="panel">
           <div class="panel-head">
@@ -320,6 +338,16 @@
 
         <div class="architecture-stage">
           <div class="scene" id="scene">
+            <div class="arch-legend">
+              <span><i class="legend-flow"></i>Telemetry</span>
+              <span><i class="legend-rule"></i>Rule evidence</span>
+              <span><i class="legend-defense"></i>Containment</span>
+            </div>
+            <div class="arch-live">
+              <div><span>Window</span><strong id="arch-window">--</strong></div>
+              <div><span>Rule triggers</span><strong id="arch-rules">--</strong></div>
+              <div><span>Changes</span><strong id="arch-changes">--</strong></div>
+            </div>
             <div class="packet packet-a"></div>
             <div class="packet packet-b"></div>
             <div class="packet packet-c"></div>
@@ -340,24 +368,24 @@
   </div>
 
   <!-- dashboard.js: use Flask url_for when templated; otherwise fallback injected below -->
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260502-buttons" data-dashboard-src="true"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260502-runall3" data-dashboard-src="true"></script>
 
-  <!-- Fallback loader: if the Jinja {{ url_for(...) }} tokens were not rendered (e.g. file:// or static preview),
+  <!-- Fallback loader: if the Jinja url_for tokens were not rendered (e.g. file:// or static preview),
        replace/inject local static paths so CSS/JS actually load and event listeners can attach.
        This runs after the DOM markup and will not interfere when Flask renders url_for as expected. -->
   <script>
     (function(){
-      function needsFallback(str){ return typeof str === 'string' && str.indexOf('{{') !== -1; }
+      function needsFallback(str){ return typeof str === 'string' && str.indexOf('{' + '{') !== -1; }
       // CSS fallback
       var cssLink = document.querySelector('link[data-static-fallback="css"]');
       if (cssLink && needsFallback(cssLink.getAttribute('href'))) {
-        cssLink.href = 'static/css/style.css?v=20260502-package';
+        cssLink.href = 'static/css/style.css?v=20260502-runall3';
       }
       // JS fallback: if the templated script src was not rendered, inject a working script tag
       var dashScript = document.querySelector('script[data-dashboard-src="true"]');
       if (dashScript && needsFallback(dashScript.getAttribute('src'))) {
         var s = document.createElement('script');
-        s.src = 'static/js/dashboard.js?v=20260502-buttons';
+        s.src = 'static/js/dashboard.js?v=20260502-runall3';
         s.defer = true;
         document.body.appendChild(s);
       }

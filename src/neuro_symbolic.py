@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from sklearn.tree import DecisionTreeClassifier
 
 
 BENIGN_LABELS = {"benign", "normal"}
@@ -157,6 +159,55 @@ def _engineer_dataframe(frame: pd.DataFrame) -> pd.DataFrame:
 def _engineer_sample(sample: Mapping[str, Any] | pd.Series) -> dict[str, float]:
     frame = pd.DataFrame([dict(sample)]) if not isinstance(sample, pd.Series) else sample.to_frame().T
     return {key: _safe_float(value) for key, value in _engineer_dataframe(frame).iloc[0].items()}
+
+
+def _rule_feature_frame(engineered: pd.DataFrame, probs: Optional[np.ndarray], labels: Sequence[str]) -> pd.DataFrame:
+    frame = engineered.reset_index(drop=True).copy()
+    if probs is None or probs.ndim != 2 or probs.shape[1] != len(labels):
+        return frame
+
+    clipped = np.clip(np.asarray(probs, dtype=float), 1e-12, 1.0)
+    for idx, label in enumerate(labels):
+        frame[f"prob_{label}"] = clipped[:, idx]
+    sorted_probs = np.sort(clipped, axis=1)
+    frame["confidence"] = sorted_probs[:, -1]
+    frame["margin"] = sorted_probs[:, -1] - sorted_probs[:, -2] if clipped.shape[1] > 1 else sorted_probs[:, -1]
+    benign_idx = _label_index(labels, "Benign")
+    attack_indices = [idx for idx, label in enumerate(labels) if _is_attack(label)]
+    if benign_idx is not None:
+        frame["attack_mass"] = 1.0 - clipped[:, benign_idx]
+    elif attack_indices:
+        frame["attack_mass"] = clipped[:, attack_indices].sum(axis=1)
+    else:
+        frame["attack_mass"] = 0.0
+    frame["entropy"] = -np.sum(clipped * np.log(clipped), axis=1)
+    return frame.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+def _rule_feature_dict(
+    engineered_features: Mapping[str, float],
+    probs: Optional[np.ndarray],
+    labels: Sequence[str],
+) -> dict[str, float]:
+    row = {str(key): _safe_float(value) for key, value in engineered_features.items()}
+    if probs is None or len(probs) != len(labels):
+        return row
+    clipped = np.clip(np.asarray(probs, dtype=float), 1e-12, 1.0)
+    for idx, label in enumerate(labels):
+        row[f"prob_{label}"] = float(clipped[idx])
+    sorted_probs = np.sort(clipped)
+    row["confidence"] = float(sorted_probs[-1])
+    row["margin"] = float(sorted_probs[-1] - sorted_probs[-2]) if len(sorted_probs) > 1 else float(sorted_probs[-1])
+    benign_idx = _label_index(labels, "Benign")
+    attack_indices = [idx for idx, label in enumerate(labels) if _is_attack(label)]
+    if benign_idx is not None:
+        row["attack_mass"] = float(1.0 - clipped[benign_idx])
+    elif attack_indices:
+        row["attack_mass"] = float(np.sum(clipped[attack_indices]))
+    else:
+        row["attack_mass"] = 0.0
+    row["entropy"] = float(-np.sum(clipped * np.log(clipped)))
+    return row
 
 
 def _quantile(series: pd.Series, q: float, default: float = 0.0) -> float:
@@ -338,6 +389,146 @@ def _ceil_probability_threshold(value: float, step: float = 0.05) -> float:
     return float(np.clip(np.ceil(value / step) * step, 0.0, 0.95))
 
 
+def _extract_tree_paths(tree: DecisionTreeClassifier, feature_names: Sequence[str]) -> dict[int, list[dict[str, Any]]]:
+    paths: dict[int, list[dict[str, Any]]] = {}
+    children_left = tree.tree_.children_left
+    children_right = tree.tree_.children_right
+    features = tree.tree_.feature
+    thresholds = tree.tree_.threshold
+
+    def walk(node_id: int, conditions: list[dict[str, Any]]) -> None:
+        left = int(children_left[node_id])
+        right = int(children_right[node_id])
+        if left == right:
+            paths[node_id] = conditions
+            return
+        feature_name = str(feature_names[int(features[node_id])])
+        threshold = float(thresholds[node_id])
+        walk(left, [*conditions, {"feature": feature_name, "operator": "<=", "threshold": threshold}])
+        walk(right, [*conditions, {"feature": feature_name, "operator": ">", "threshold": threshold}])
+
+    walk(0, [])
+    return paths
+
+
+def _conditions_match(values: Mapping[str, float], conditions: Sequence[Mapping[str, Any]]) -> bool:
+    for condition in conditions:
+        feature = str(condition.get("feature", ""))
+        value = _safe_float(values.get(feature), default=np.nan)
+        threshold = _safe_float(condition.get("threshold"), default=np.nan)
+        if not np.isfinite(value) or not np.isfinite(threshold):
+            return False
+        if condition.get("operator") == "<=":
+            if value > threshold:
+                return False
+        else:
+            if value <= threshold:
+                return False
+    return True
+
+
+def _conditions_mask(frame: pd.DataFrame, conditions: Sequence[Mapping[str, Any]]) -> np.ndarray:
+    mask = np.ones(len(frame), dtype=bool)
+    for condition in conditions:
+        feature = str(condition.get("feature", ""))
+        if feature not in frame.columns:
+            return np.zeros(len(frame), dtype=bool)
+        threshold = _safe_float(condition.get("threshold"), default=np.nan)
+        if not np.isfinite(threshold):
+            return np.zeros(len(frame), dtype=bool)
+        values = pd.to_numeric(frame[feature], errors="coerce").fillna(np.nan).to_numpy(dtype=float)
+        if condition.get("operator") == "<=":
+            mask &= values <= threshold
+        else:
+            mask &= values > threshold
+    return mask
+
+
+def _rescue_min_target_precision(row_count: int) -> float:
+    return 0.25 if row_count < 500 else 0.55
+
+
+def _learn_false_negative_rescue_rules(
+    reference_X: pd.DataFrame,
+    reference_y: Optional[Sequence[str]],
+    labels: Sequence[str],
+    engineered: pd.DataFrame,
+    probs: Optional[np.ndarray],
+    base_predictions: Optional[Sequence[str]],
+) -> list[dict[str, Any]]:
+    """Export shallow, auditable tree leaves that target benign-predicted attack misses."""
+    if reference_y is None or probs is None or base_predictions is None:
+        return []
+    if probs.ndim != 2 or probs.shape[1] != len(labels):
+        return []
+
+    truth = np.asarray([str(label) for label in reference_y])
+    base = np.asarray([str(label) for label in base_predictions])
+    benign_region = np.asarray([_is_benign(label) for label in base], dtype=bool)
+    if benign_region.sum() < 30:
+        return []
+    if not np.any(benign_region & np.asarray([_is_attack(label) for label in truth], dtype=bool)):
+        return []
+
+    rule_features = _rule_feature_frame(engineered, probs, labels)
+    X_rule = rule_features.loc[benign_region].reset_index(drop=True)
+    y_rule = truth[benign_region]
+    if len(np.unique(y_rule)) < 2:
+        return []
+
+    min_leaf = max(5, min(40, int(round(len(X_rule) * 0.03))))
+    tree = DecisionTreeClassifier(
+        max_depth=4,
+        min_samples_leaf=min_leaf,
+        random_state=42,
+        class_weight="balanced",
+    )
+    tree.fit(X_rule, y_rule)
+    leaf_ids = tree.apply(X_rule)
+    paths = _extract_tree_paths(tree, list(X_rule.columns))
+    rules: list[dict[str, Any]] = []
+    min_target_precision = _rescue_min_target_precision(len(X_rule))
+
+    for leaf_id, conditions in paths.items():
+        leaf_mask = leaf_ids == leaf_id
+        support = int(leaf_mask.sum())
+        if support <= 0:
+            continue
+        weighted_target = str(tree.classes_[int(np.argmax(tree.tree_.value[leaf_id][0]))])
+        if _is_benign(weighted_target):
+            continue
+
+        counts = Counter(str(label) for label in y_rule[leaf_mask])
+        target_support = int(counts.get(weighted_target, 0))
+        attack_support = int(sum(count for label, count in counts.items() if _is_attack(label)))
+        target_precision = target_support / max(1, support)
+        attack_precision = attack_support / max(1, support)
+        if target_support <= 0 or target_precision < min_target_precision:
+            continue
+
+        strength = _clip01(0.82 + 0.16 * target_precision + 0.02 * attack_precision)
+        rules.append(
+            {
+                "rule_id": f"R7_LEARNED_FN_RESCUE_{len(rules) + 1}",
+                "target_label": weighted_target,
+                "conditions": conditions,
+                "support": support,
+                "target_support": target_support,
+                "attack_support": attack_support,
+                "target_precision": round(float(target_precision), 6),
+                "attack_precision": round(float(attack_precision), 6),
+                "strength": round(float(strength), 6),
+                "priority": 20,
+                "explanation": (
+                    "Calibration tree leaf targets neural false negatives: "
+                    f"{target_support}/{support} benign-predicted calibration flows in this region were {weighted_target}."
+                ),
+            }
+        )
+
+    return sorted(rules, key=lambda rule: (-float(rule["target_precision"]), -int(rule["target_support"]), rule["rule_id"]))
+
+
 def build_symbolic_context(
     reference_X: pd.DataFrame,
     reference_y: Optional[Sequence[str]] = None,
@@ -388,6 +579,7 @@ def build_symbolic_context(
         "dos_from_benign": 0.20,
         "attack_mass_from_benign": 0.50,
     }
+    learned_rescue_rules: list[dict[str, Any]] = []
 
     probs = None if predicted_probs is None else np.asarray(predicted_probs, dtype=float)
     if probs is not None and probs.ndim == 2 and probs.shape[1] == len(labels):
@@ -420,11 +612,33 @@ def build_symbolic_context(
             reference_y,
             probability_thresholds["attack_mass_from_benign"],
         )
+        learned_rescue_rules = _learn_false_negative_rescue_rules(
+            reference_X,
+            reference_y,
+            labels,
+            engineered,
+            probs,
+            base_predictions,
+        )
+
+    benign_prediction_count = None
+    if base_predictions is not None:
+        benign_prediction_count = int(np.sum(np.asarray([_is_benign(label) for label in base_predictions], dtype=bool)))
 
     return {
         "class_labels": labels,
         "thresholds": thresholds,
         "probability_thresholds": probability_thresholds,
+        "learned_rescue_rules": learned_rescue_rules,
+        "learned_rescue_summary": {
+            "count": len(learned_rescue_rules),
+            "method": "shallow decision-tree leaves over benign-predicted calibration rows",
+            "minimum_target_precision": (
+                _rescue_min_target_precision(benign_prediction_count)
+                if benign_prediction_count is not None
+                else None
+            ),
+        },
     }
 
 
@@ -520,7 +734,14 @@ def apply_symbolic_rules(
     fired_rules: list[dict[str, Any]] = []
     rule_scores = np.zeros(len(labels), dtype=float)
 
-    def fire(rule_id: str, target_label: str, strength: float, reason: str, evidence: Mapping[str, Any]) -> None:
+    def fire(
+        rule_id: str,
+        target_label: str,
+        strength: float,
+        reason: str,
+        evidence: Mapping[str, Any],
+        priority: int = 0,
+    ) -> None:
         strength_value = _clip01(strength)
         fired_rules.append(
             {
@@ -530,6 +751,7 @@ def apply_symbolic_rules(
                 "strength": round(strength_value, 6),
                 "reason": reason,
                 "evidence": dict(evidence),
+                "priority": int(priority),
             }
         )
         _add_rule_score(rule_scores, labels, target_label, strength_value)
@@ -596,10 +818,11 @@ def apply_symbolic_rules(
             best_attack_label = labels[best_attack_idx]
             anomaly_score = max(scan_score, burst_score, slow_dos_score)
             mass_excess = _threshold_score(attack_mass, attack_mass_threshold, 1.0)
+            confidence_bonus = 0.04 if confidence < 0.45 else 0.0
             fire(
                 "R4_SUSPICIOUS_BENIGN_ATTACK_MASS",
                 best_attack_label,
-                0.86 + 0.10 * mass_excess + 0.02 * anomaly_score,
+                0.78 + 0.15 * mass_excess + 0.05 * anomaly_score + confidence_bonus,
                 "Benign prediction has calibrated high aggregate attack probability.",
                 {
                     "confidence": round(confidence, 6),
@@ -607,7 +830,29 @@ def apply_symbolic_rules(
                     "attack_mass_threshold": round(attack_mass_threshold, 6),
                     "target_attack": best_attack_label,
                     "anomaly_score": round(anomaly_score, 6),
+            },
+        )
+
+    if probs is not None and _is_benign(predicted_label):
+        rule_features = _rule_feature_dict(features, probs, labels)
+        for rescue_rule in context.get("learned_rescue_rules", []):
+            conditions = rescue_rule.get("conditions", [])
+            target = str(rescue_rule.get("target_label", ""))
+            if not target or _is_benign(target) or not _conditions_match(rule_features, conditions):
+                continue
+            fire(
+                str(rescue_rule.get("rule_id", "R7_LEARNED_FN_RESCUE")),
+                target,
+                float(rescue_rule.get("strength", 0.88)),
+                str(rescue_rule.get("explanation", "Learned calibration rule matched a benign-predicted attack region.")),
+                {
+                    "confidence": round(confidence, 6),
+                    "target_precision": rescue_rule.get("target_precision"),
+                    "attack_precision": rescue_rule.get("attack_precision"),
+                    "calibration_support": rescue_rule.get("support"),
+                    "conditions": conditions,
                 },
+                priority=int(rescue_rule.get("priority", 20)),
             )
 
     original = _as_probability_vector(predicted_probs)
@@ -643,12 +888,28 @@ def apply_symbolic_rules(
         )
 
     active_rules = [rule for rule in fired_rules if rule["rule_id"] != "NONE"]
-    strongest_rule = max(active_rules, key=lambda rule: float(rule["strength"]), default=None)
+    strongest_rule = max(
+        active_rules,
+        key=lambda rule: (int(rule.get("priority", 0)), float(rule["strength"])),
+        default=None,
+    )
     strongest_strength = float(strongest_rule["strength"]) if strongest_rule else 0.0
 
     if strongest_rule is not None:
         mode = str(fusion_mode).strip().lower()
-        if mode == "soft" and probs is not None and len(rule_scores) == len(probs):
+        priority = int(strongest_rule.get("priority", 0))
+        if priority >= 20:
+            candidate_label = str(strongest_rule["new_label"])
+            if _override_allowed(
+                final_label,
+                candidate_label,
+                confidence,
+                strongest_strength,
+                confidence_threshold,
+                strong_rule_threshold,
+            ):
+                final_label = candidate_label
+        elif mode == "soft" and probs is not None and len(rule_scores) == len(probs):
             normalized_rule_scores = _normalize_rule_scores(rule_scores)
             fused = alpha_value * probs + beta_value * normalized_rule_scores
             fused = fused / max(float(fused.sum()), 1e-12)
@@ -722,7 +983,15 @@ def apply_symbolic_rules_batch(
     traces: list[list[dict[str, Any]]] = [[] for _ in range(len(samples))]
     strengths = np.zeros(len(samples), dtype=float)
 
-    def add_rule(row_mask: np.ndarray, rule_id: str, target: str, strength_values: np.ndarray, reason: str) -> None:
+    def add_rule(
+        row_mask: np.ndarray,
+        rule_id: str,
+        target: str,
+        strength_values: np.ndarray,
+        reason: str,
+        priority: int = 0,
+        evidence: Optional[Mapping[str, Any]] = None,
+    ) -> None:
         for idx in np.flatnonzero(row_mask):
             strength = float(strength_values[idx]) if np.ndim(strength_values) else float(strength_values)
             strengths[idx] = max(strengths[idx], strength)
@@ -732,7 +1001,8 @@ def apply_symbolic_rules_batch(
                 "new_label": target,
                 "strength": round(_clip01(strength), 6),
                 "reason": reason,
-                "evidence": {},
+                "evidence": dict(evidence or {}),
+                "priority": int(priority),
                 "applied": False,
             })
 
@@ -802,7 +1072,7 @@ def apply_symbolic_rules_batch(
     r4_mask = benign_mask & (attack_mass >= attack_mass_threshold)
     best_attack_idx = np.argmax(np.where(np.asarray([_is_attack(label) for label in labels]), probs, -1.0), axis=1)
     mass_excess = np.clip((attack_mass - attack_mass_threshold) / max(1.0 - attack_mass_threshold, 1e-9), 0.0, 1.0)
-    r4_strength = 0.86 + 0.10 * mass_excess + 0.02 * anomaly_score
+    r4_strength = 0.78 + 0.15 * mass_excess + 0.05 * anomaly_score + np.where(confidence < 0.45, 0.04, 0.0)
     for idx in np.flatnonzero(r4_mask):
         target = labels[int(best_attack_idx[idx])]
         strength = float(r4_strength[idx])
@@ -818,31 +1088,63 @@ def apply_symbolic_rules_batch(
                 "attack_mass_threshold": round(attack_mass_threshold, 6),
                 "target_attack": target,
             },
+            "priority": 0,
             "applied": False,
         })
 
-    if scan_idx is not None and benign_idx is not None:
-        if str(fusion_mode).lower() == "soft":
-            fused_scan = alpha * probs[:, scan_idx] + beta_value
-            fused_benign = alpha * probs[:, benign_idx]
-            scan_wins = fused_scan > fused_benign
-        else:
-            scan_wins = np.ones(len(samples), dtype=bool)
-        apply_scan = r3_mask & scan_wins & (r3_strength >= strong_rule_threshold - 0.05)
-        final[apply_scan] = "Scanning"
-        for idx in np.flatnonzero(apply_scan):
-            for rule in traces[idx]:
-                if rule["rule_id"] == "R3_SUSPICIOUS_BENIGN_SCANNING":
-                    rule["applied"] = True
+    rule_feature_values = _rule_feature_frame(features, probs, labels)
+    for rescue_rule in rule_context.get("learned_rescue_rules", []):
+        target = str(rescue_rule.get("target_label", ""))
+        if not target or _is_benign(target) or _label_index(labels, target) is None:
+            continue
+        rescue_mask = benign_mask & _conditions_mask(rule_feature_values, rescue_rule.get("conditions", []))
+        if not rescue_mask.any():
+            continue
+        add_rule(
+            rescue_mask,
+            str(rescue_rule.get("rule_id", "R7_LEARNED_FN_RESCUE")),
+            target,
+            np.full(len(samples), float(rescue_rule.get("strength", 0.88))),
+            str(rescue_rule.get("explanation", "Learned calibration rule matched a benign-predicted attack region.")),
+            priority=int(rescue_rule.get("priority", 20)),
+            evidence={
+                "target_precision": rescue_rule.get("target_precision"),
+                "attack_precision": rescue_rule.get("attack_precision"),
+                "calibration_support": rescue_rule.get("support"),
+            },
+        )
 
-    apply_attack_mass = r4_mask & (r4_strength >= strong_rule_threshold)
-    for idx in np.flatnonzero(apply_attack_mass):
-        final[idx] = labels[int(best_attack_idx[idx])]
-        for rule in traces[idx]:
-            if rule["rule_id"] == "R4_SUSPICIOUS_BENIGN_ATTACK_MASS":
-                rule["applied"] = True
-            elif rule.get("applied") and rule.get("new_label") != final[idx]:
-                rule["applied"] = False
+    mode = str(fusion_mode).lower()
+    for idx, rules in enumerate(traces):
+        active = [rule for rule in rules if rule.get("rule_id") != "NONE"]
+        if not active:
+            continue
+        strongest = max(active, key=lambda rule: (int(rule.get("priority", 0)), float(rule.get("strength", 0.0))))
+        candidate = str(strongest.get("new_label"))
+        strength = float(strongest.get("strength", 0.0))
+
+        if int(strongest.get("priority", 0)) < 20 and mode == "soft":
+            rule_scores = np.zeros(len(labels), dtype=float)
+            for rule in active:
+                target_idx = _label_index(labels, str(rule.get("new_label")))
+                if target_idx is not None:
+                    rule_scores[target_idx] = max(rule_scores[target_idx], float(rule.get("strength", 0.0)))
+            normalized_rule_scores = _normalize_rule_scores(rule_scores)
+            fused = alpha * probs[idx] + beta_value * normalized_rule_scores
+            fused = fused / max(float(fused.sum()), 1e-12)
+            candidate = labels[int(np.argmax(fused))]
+
+        if _override_allowed(
+            str(base[idx]),
+            candidate,
+            float(confidence[idx]),
+            strength,
+            confidence_threshold,
+            strong_rule_threshold,
+        ):
+            final[idx] = candidate
+            for rule in rules:
+                rule["applied"] = bool(str(rule.get("new_label")) == candidate and candidate != str(base[idx]))
 
     for idx, rules in enumerate(traces):
         if not rules:

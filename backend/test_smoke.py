@@ -64,11 +64,35 @@ class NidsApiRegressionTests(unittest.TestCase):
         analytics = data["rule_analytics"]
         self.assertGreater(analytics["rule_trigger_count"], 0)
         self.assertGreater(analytics["changed_predictions"], 0)
+        self.assertGreater(analytics["prediction_change_count"], 0)
         self.assertGreater(analytics["false_negative_attack_rescues"], 0)
+        self.assertGreater(analytics["binary_attack_recall_delta"], 0)
         self.assertIn("R4_SUSPICIOUS_BENIGN_ATTACK_MASS", analytics["per_rule_trigger_count"])
         self.assertGreater(analytics["per_rule_trigger_frequency"]["R4_SUSPICIOUS_BENIGN_ATTACK_MASS"], 0)
+        self.assertEqual(data["novelty_proof"]["verdict"], "proven")
+        self.assertTrue(data["novelty_proof"]["examples"])
         self.assertEqual(data["metrics"]["source"], "live-window evaluation from model predictions and test labels")
         self.assertIn("saved-paper-summary", data["paper_summary"]["source"])
+
+    def test_run_all_recomputes_full_dashboard_payload(self):
+        result = self.post_json("/api/run-all", {"limit": 750, "alpha": 0.1, "flow_idx": 0})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["research"]["limit"], 750)
+        self.assertEqual(result["charts"]["limit"], 750)
+        self.assertIn("debug", result)
+        self.assertIn("debug", result["charts"])
+        self.assertGreater(result["debug"]["api_output_summary"]["rule_trigger_count"], 0)
+        self.assertGreater(result["debug"]["api_output_summary"]["prediction_change_count"], 0)
+        self.assertIn("charts", result["debug"]["datasets_changed"])
+        self.assertIn("defense", result)
+        self.assertEqual(result["research"]["novelty_proof"]["verdict"], "proven")
+
+    def test_frontend_exposes_run_all_and_impact_panel(self):
+        html = (PROJECT_ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        js = (PROJECT_ROOT / "frontend" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.assertIn('id="btn-run-all"', html)
+        self.assertIn("Neuro-Symbolic Impact Proof", html)
+        self.assertIn("/api/run-all", js)
 
     def test_streamlit_dashboard_has_no_fixed_performance_literals(self):
         text = (PROJECT_ROOT / "src" / "app_streamlit.py").read_text(encoding="utf-8")

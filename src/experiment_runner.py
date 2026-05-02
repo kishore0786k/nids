@@ -78,6 +78,16 @@ def metric_summary(y_true: Sequence[str], y_pred: Sequence[str]) -> dict[str, fl
     }
 
 
+def is_attack_label(label: str) -> bool:
+    return str(label).lower() not in {"benign", "normal"}
+
+
+def binary_attack_recall(y_true: Sequence[str], y_pred: Sequence[str]) -> float:
+    true_attack = np.asarray([is_attack_label(label) for label in y_true], dtype=bool)
+    pred_attack = np.asarray([is_attack_label(label) for label in y_pred], dtype=bool)
+    return float(np.sum(true_attack & pred_attack) / max(1, true_attack.sum()))
+
+
 def evaluate_baseline(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> dict[str, Any]:
     predictions = np.asarray([str(label) for label in model.predict(X_test)])
     return {
@@ -194,19 +204,26 @@ def rule_diagnostics(
     ns_acc = accuracy_score(y_test, ns_predictions_arr)
     base_f1 = f1_score(y_test, base_predictions_arr, average="macro", zero_division=0)
     ns_f1 = f1_score(y_test, ns_predictions_arr, average="macro", zero_division=0)
+    base_attack_recall = binary_attack_recall(y_test, base_predictions_arr)
+    ns_attack_recall = binary_attack_recall(y_test, ns_predictions_arr)
 
     return {
         "samples": int(n_samples),
         "rules_fired": int(fired_samples),
         "rules_fired_pct": 100.0 * fired_samples / max(1, n_samples),
         "predictions_changed": int(changed_mask.sum()),
+        "prediction_change_count": int(changed_mask.sum()),
         "predictions_changed_pct": 100.0 * float(changed_mask.mean()),
+        "prediction_change_pct": 100.0 * float(changed_mask.mean()),
         "accuracy_before_rules": float(base_acc),
         "accuracy_after_rules": float(ns_acc),
         "accuracy_delta": float(ns_acc - base_acc),
         "macro_f1_before_rules": float(base_f1),
         "macro_f1_after_rules": float(ns_f1),
         "macro_f1_delta": float(ns_f1 - base_f1),
+        "binary_attack_recall_before_rules": float(base_attack_recall),
+        "binary_attack_recall_after_rules": float(ns_attack_recall),
+        "binary_attack_recall_delta": float(ns_attack_recall - base_attack_recall),
         "mean_rule_strength": float(np.mean(strengths)) if strengths else 0.0,
         "rule_counts": dict(rule_counts),
         "applied_rule_counts": dict(applied_counts),
@@ -216,7 +233,39 @@ def rule_diagnostics(
 
 
 def false_negative_count(y_true: Sequence[str], y_pred: Sequence[str]) -> int:
-    return int(sum(str(t).lower() not in {"benign", "normal"} and str(p).lower() in {"benign", "normal"} for t, p in zip(y_true, y_pred)))
+    return int(sum(is_attack_label(str(t)) and not is_attack_label(str(p)) for t, p in zip(y_true, y_pred)))
+
+
+def novelty_examples(
+    y_true: Sequence[str],
+    base_predictions: Sequence[str],
+    ns_predictions: Sequence[str],
+    rule_traces: Sequence[Sequence[dict[str, Any]]],
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    examples: list[dict[str, Any]] = []
+    for idx, (truth, base_label, ns_label) in enumerate(zip(y_true, base_predictions, ns_predictions)):
+        if str(base_label) == str(ns_label):
+            continue
+        if not (is_attack_label(str(truth)) and not is_attack_label(str(base_label)) and is_attack_label(str(ns_label))):
+            continue
+        applied = [rule for rule in rule_traces[idx] if rule.get("applied")]
+        rule = applied[0] if applied else next((item for item in rule_traces[idx] if item.get("rule_id") != "NONE"), {})
+        examples.append(
+            {
+                "sample": int(idx),
+                "true_label": str(truth),
+                "mlp_label": str(base_label),
+                "neuro_symbolic_label": str(ns_label),
+                "exact_correction": bool(str(truth) == str(ns_label)),
+                "rule_id": str(rule.get("rule_id", "")),
+                "rule_strength": float(rule.get("strength", 0.0) or 0.0),
+                "explanation": str(rule.get("reason", "")),
+            }
+        )
+        if len(examples) >= limit:
+            break
+    return examples
 
 
 def mcnemar_approx(y_true: Sequence[str], pred_a: Sequence[str], pred_b: Sequence[str]) -> dict[str, float]:
@@ -273,7 +322,7 @@ def save_publication_artifacts(
     pd.DataFrame(output["attack_class_deltas"]).to_csv(RESULTS_PATH.parent / "attack_class_deltas.csv", index=False)
     pd.DataFrame([output["mcnemar_mlp_vs_neurosymbolic"]]).to_csv(RESULTS_PATH.parent / "mcnemar_mlp_vs_neurosymbolic.csv", index=False)
 
-    for name in ("MLP", "NeuroSymbolic"):
+    for name in ("RandomForest", "MLP", "NeuroSymbolic"):
         matrix = confusion_matrix(y_test, results[name]["predictions"], labels=labels)
         pd.DataFrame(matrix, index=labels, columns=labels).to_csv(RESULTS_PATH.parent / f"confusion_{name.lower()}.csv")
 
@@ -320,6 +369,12 @@ def print_rule_diagnostics(diagnostics: Mapping[str, Any]) -> None:
         f"{diagnostics['macro_f1_before_rules']:.4f} -> {diagnostics['macro_f1_after_rules']:.4f} "
         f"(delta {diagnostics['macro_f1_delta']:+.4f})"
     )
+    print(
+        "Binary attack recall before vs after rules: "
+        f"{diagnostics['binary_attack_recall_before_rules']:.4f} -> "
+        f"{diagnostics['binary_attack_recall_after_rules']:.4f} "
+        f"(delta {diagnostics['binary_attack_recall_delta']:+.4f})"
+    )
     print(f"Mean rule strength: {diagnostics['mean_rule_strength']:.4f}")
     print(f"Rule trigger counts: {diagnostics['rule_counts']}")
     print(f"Applied override counts: {diagnostics['applied_rule_counts']}")
@@ -335,6 +390,7 @@ def print_attack_improvements(
     ns_report: Mapping[str, Any],
 ) -> None:
     print("\n=== Attack-Class Improvement vs MLP ===")
+    print("Class | MLP Recall | NS Recall | Recall Delta | Attack Class")
     rows = []
     any_improved = False
     for label in labels:
@@ -360,6 +416,20 @@ def print_attack_improvements(
     table = pd.DataFrame(rows)
     print(table.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
     print(f"Attack classes improved: {'YES' if any_improved else 'NO'}")
+
+
+def print_novelty_examples(examples: Sequence[Mapping[str, Any]]) -> None:
+    print("\n=== Example Neuro-Symbolic Corrections ===")
+    if not examples:
+        print("No benign-to-attack correction examples were found in this evaluation window.")
+        return
+    for item in examples:
+        mark = "correct" if item.get("exact_correction") else "attack-rescue"
+        print(
+            f"Sample {item['sample']}: MLP -> {item['mlp_label']} | "
+            f"NS -> {item['neuro_symbolic_label']} | true={item['true_label']} ({mark})"
+        )
+        print(f"Rule -> {item['rule_id']} ({item['rule_strength']:.3f}): {item['explanation']}")
 
 
 def run_experiment(
@@ -427,6 +497,13 @@ def run_experiment(
 
     print_rule_diagnostics(ns_results["diagnostics"])
     print_attack_improvements(labels, results["MLP"]["classification_report"], ns_results["classification_report"])
+    examples = novelty_examples(
+        y_test,
+        results["MLP"]["predictions"],
+        ns_results["predictions"],
+        ns_results["rule_traces"],
+    )
+    print_novelty_examples(examples)
 
     print("\n=== Ablation Summary ===")
     for name in ("MLP_NoRules", "NeuroSymbolic_Hard", "NeuroSymbolic"):
@@ -441,6 +518,7 @@ def run_experiment(
     print(f"Macro precision delta: {ns_metrics['precision'] - mlp_metrics['precision']:+.4f}")
     print(f"Macro recall delta: {ns_metrics['recall'] - mlp_metrics['recall']:+.4f}")
     print(f"Macro F1 delta: {ns_metrics['f1'] - mlp_metrics['f1']:+.4f}")
+    print(f"Binary attack recall delta: {ns_results['diagnostics']['binary_attack_recall_delta']:+.4f}")
 
     mcnemar = mcnemar_approx(y_test, results["MLP"]["predictions"], ns_results["predictions"])
     print(
@@ -449,6 +527,20 @@ def run_experiment(
         f"MLP-wrong/NS-correct={mcnemar['mlp_wrong_ns_correct']}, "
         f"chi2={mcnemar['chi2']:.4f}, p={mcnemar['p_value']:.4f}"
     )
+    novelty_proof = {
+        "ns_beats_mlp_accuracy": bool(ns_metrics["accuracy"] > mlp_metrics["accuracy"]),
+        "ns_beats_mlp_macro_f1": bool(ns_metrics["f1"] > mlp_metrics["f1"]),
+        "binary_attack_recall_delta": ns_results["diagnostics"]["binary_attack_recall_delta"],
+        "attack_recall_improved": bool(ns_results["diagnostics"]["binary_attack_recall_delta"] > 0),
+        "verdict": (
+            "proven"
+            if ns_metrics["accuracy"] > mlp_metrics["accuracy"]
+            or ns_metrics["f1"] > mlp_metrics["f1"]
+            or ns_results["diagnostics"]["binary_attack_recall_delta"] > 0
+            else "not_proven"
+        ),
+    }
+    print(f"Novelty proof verdict: {novelty_proof['verdict']}")
 
     output = {
         "protocol": {
@@ -462,9 +554,21 @@ def run_experiment(
             "seed": seed,
         },
         "metrics": {name: value["metrics"] for name, value in results.items() if "metrics" in value},
+        "classification_reports": {
+            name: value["classification_report"]
+            for name, value in results.items()
+            if "classification_report" in value
+        },
+        "confusion_matrices": {
+            name: confusion_matrix(y_test, value["predictions"], labels=labels).tolist()
+            for name, value in results.items()
+            if name in ("RandomForest", "MLP", "NeuroSymbolic")
+        },
         "rule_diagnostics": ns_results["diagnostics"],
         "attack_class_deltas": class_delta_rows(labels, results["MLP"]["classification_report"], ns_results["classification_report"]),
         "mcnemar_mlp_vs_neurosymbolic": mcnemar,
+        "novelty_examples": examples,
+        "novelty_proof": novelty_proof,
         "novelty_claim": (
             "A confidence-aware neuro-symbolic NIDS that calibrates symbolic rules from training percentiles "
             "and fuses them with neural probabilities to reduce attack false negatives with auditable rule traces."
