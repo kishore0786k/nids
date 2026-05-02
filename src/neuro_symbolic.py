@@ -263,6 +263,75 @@ def _calibrate_target_threshold(
     return best_threshold if np.isfinite(best_threshold) else fallback
 
 
+def _calibrate_attack_mass_threshold(
+    probs: np.ndarray,
+    labels: Sequence[str],
+    base_predictions: Sequence[str],
+    y_true: Optional[Sequence[str]],
+    fallback: float = 0.50,
+) -> float:
+    benign_idx = _label_index(labels, "Benign")
+    if benign_idx is None:
+        return fallback
+
+    base_predictions = np.asarray([str(label) for label in base_predictions])
+    pred_benign = np.asarray([_is_benign(label) for label in base_predictions], dtype=bool)
+    if not pred_benign.any():
+        return fallback
+
+    attack_indices = [idx for idx, label in enumerate(labels) if _is_attack(label)]
+    if not attack_indices:
+        return fallback
+
+    attack_mass = 1.0 - probs[:, benign_idx]
+    eligible_scores = attack_mass[pred_benign]
+    finite_scores = eligible_scores[np.isfinite(eligible_scores)]
+    if finite_scores.size == 0:
+        return fallback
+
+    if y_true is None:
+        return _ceil_probability_threshold(max(fallback, float(np.quantile(finite_scores, 0.95))))
+
+    truth = np.asarray([str(label) for label in y_true])
+    best_attack_idx = np.argmax(
+        np.where(np.asarray([_is_attack(label) for label in labels]), probs, -1.0),
+        axis=1,
+    )
+    best_attack_labels = np.asarray([labels[int(idx)] for idx in best_attack_idx])
+    grid = np.concatenate(
+        [
+            np.linspace(0.25, 0.75, 11),
+            np.quantile(finite_scores, np.linspace(0.75, 0.99, 8)),
+        ]
+    )
+    candidates = np.unique(grid[np.isfinite(grid)])
+    candidates = candidates[(candidates > 0.0) & (candidates < 0.95)]
+    if candidates.size == 0:
+        return fallback
+
+    best_threshold = fallback
+    best_score = -np.inf
+    best_precision = -np.inf
+    for threshold in candidates:
+        changed = pred_benign & (attack_mass >= threshold)
+        changed_count = int(changed.sum())
+        if changed_count == 0:
+            continue
+        exact_corrections = int(np.sum(changed & (truth == best_attack_labels)))
+        benign_false_alarms = int(np.sum(changed & np.asarray([_is_benign(label) for label in truth], dtype=bool)))
+        attack_rescues = int(np.sum(changed & np.asarray([_is_attack(label) for label in truth], dtype=bool)))
+        precision = exact_corrections / max(1, changed_count)
+        score = exact_corrections - benign_false_alarms + 0.05 * attack_rescues
+        if score > best_score or (score == best_score and precision > best_precision):
+            best_score = score
+            best_precision = precision
+            best_threshold = float(threshold)
+
+    if best_score <= 0:
+        return _ceil_probability_threshold(max(fallback, float(np.quantile(finite_scores, 0.95))))
+    return _ceil_probability_threshold(best_threshold)
+
+
 def _ceil_probability_threshold(value: float, step: float = 0.05) -> float:
     if not np.isfinite(value):
         return 0.5
@@ -317,7 +386,7 @@ def build_symbolic_context(
     probability_thresholds = {
         "scanning_from_benign": 0.25,
         "dos_from_benign": 0.20,
-        "attack_mass_from_benign": 0.30,
+        "attack_mass_from_benign": 0.50,
     }
 
     probs = None if predicted_probs is None else np.asarray(predicted_probs, dtype=float)
@@ -344,11 +413,13 @@ def build_symbolic_context(
             probability_thresholds["dos_from_benign"],
         ))
 
-        benign_idx = _label_index(labels, "Benign")
-        pred_benign = np.asarray([_is_benign(label) for label in base_predictions], dtype=bool)
-        if benign_idx is not None and pred_benign.any():
-            attack_mass = 1.0 - probs[pred_benign, benign_idx]
-            probability_thresholds["attack_mass_from_benign"] = float(np.quantile(attack_mass, 0.90))
+        probability_thresholds["attack_mass_from_benign"] = _calibrate_attack_mass_threshold(
+            probs,
+            labels,
+            base_predictions,
+            reference_y,
+            probability_thresholds["attack_mass_from_benign"],
+        )
 
     return {
         "class_labels": labels,
@@ -510,7 +581,7 @@ def apply_symbolic_rules(
             fire(
                 "R3_SUSPICIOUS_BENIGN_SCANNING",
                 "Scanning",
-                0.78 + 0.16 * scan_score + 0.08 * prob_excess,
+                0.68 + 0.08 * scan_score + 0.03 * prob_excess,
                 "Benign prediction has a scanning-like signature and elevated scanning probability.",
                 {
                     "confidence": round(confidence, 6),
@@ -519,24 +590,25 @@ def apply_symbolic_rules(
                     "scan_signature_score": round(scan_score, 6),
                 },
             )
-        elif attack_indices and attack_mass >= float(probability_thresholds.get("attack_mass_from_benign", 0.30)):
+        attack_mass_threshold = float(probability_thresholds.get("attack_mass_from_benign", 0.50))
+        if attack_indices and attack_mass >= attack_mass_threshold:
             best_attack_idx = max(attack_indices, key=lambda idx: probs[idx])
             best_attack_label = labels[best_attack_idx]
             anomaly_score = max(scan_score, burst_score, slow_dos_score)
-            if anomaly_score >= 0.60:
-                fire(
-                    "R4_SUSPICIOUS_BENIGN_ATTACK_MASS",
-                    best_attack_label,
-                    0.68 + 0.08 * anomaly_score + 0.03 * _threshold_score(attack_mass, 0.0, 1.0),
-                    "Benign prediction has high aggregate attack probability and an anomalous traffic signature.",
-                    {
-                        "confidence": round(confidence, 6),
-                        "attack_mass": round(attack_mass, 6),
-                        "attack_mass_threshold": round(float(probability_thresholds.get("attack_mass_from_benign", 0.30)), 6),
-                        "target_attack": best_attack_label,
-                        "anomaly_score": round(anomaly_score, 6),
-                    },
-                )
+            mass_excess = _threshold_score(attack_mass, attack_mass_threshold, 1.0)
+            fire(
+                "R4_SUSPICIOUS_BENIGN_ATTACK_MASS",
+                best_attack_label,
+                0.86 + 0.10 * mass_excess + 0.02 * anomaly_score,
+                "Benign prediction has calibrated high aggregate attack probability.",
+                {
+                    "confidence": round(confidence, 6),
+                    "attack_mass": round(attack_mass, 6),
+                    "attack_mass_threshold": round(attack_mass_threshold, 6),
+                    "target_attack": best_attack_label,
+                    "anomaly_score": round(anomaly_score, 6),
+                },
+            )
 
     original = _as_probability_vector(predicted_probs)
     perturbed = _as_probability_vector(adversarial_probs)
@@ -711,7 +783,7 @@ def apply_symbolic_rules_batch(
     scan_prob = probs[:, scan_idx] if scan_idx is not None else np.zeros(len(samples))
     scan_threshold = float(prob_thresholds.get("scanning_from_benign", 0.25))
     r3_mask = benign_mask & (scan_score >= 0.50) & (scan_prob >= scan_threshold)
-    r3_strength = 0.78 + 0.16 * scan_score + 0.08 * threshold_vec(pd.Series(scan_prob), scan_threshold, 1.0)
+    r3_strength = 0.68 + 0.08 * scan_score + 0.03 * threshold_vec(pd.Series(scan_prob), scan_threshold, 1.0)
     add_rule(
         r3_mask,
         "R3_SUSPICIOUS_BENIGN_SCANNING",
@@ -726,9 +798,11 @@ def apply_symbolic_rules_batch(
         attack_indices = [idx for idx, label in enumerate(labels) if _is_attack(label)]
         attack_mass = probs[:, attack_indices].sum(axis=1)
     anomaly_score = np.maximum.reduce([scan_score, burst_score, slow_dos_score])
-    r4_mask = benign_mask & (attack_mass >= float(prob_thresholds.get("attack_mass_from_benign", 0.30))) & (anomaly_score >= 0.60)
+    attack_mass_threshold = float(prob_thresholds.get("attack_mass_from_benign", 0.50))
+    r4_mask = benign_mask & (attack_mass >= attack_mass_threshold)
     best_attack_idx = np.argmax(np.where(np.asarray([_is_attack(label) for label in labels]), probs, -1.0), axis=1)
-    r4_strength = 0.68 + 0.08 * anomaly_score + 0.03 * np.clip(attack_mass, 0.0, 1.0)
+    mass_excess = np.clip((attack_mass - attack_mass_threshold) / max(1.0 - attack_mass_threshold, 1e-9), 0.0, 1.0)
+    r4_strength = 0.86 + 0.10 * mass_excess + 0.02 * anomaly_score
     for idx in np.flatnonzero(r4_mask):
         target = labels[int(best_attack_idx[idx])]
         strength = float(r4_strength[idx])
@@ -738,8 +812,12 @@ def apply_symbolic_rules_batch(
             "old_label": str(base[idx]),
             "new_label": target,
             "strength": round(_clip01(strength), 6),
-            "reason": "Benign prediction has high aggregate attack probability and an anomalous traffic signature.",
-            "evidence": {},
+            "reason": "Benign prediction has calibrated high aggregate attack probability.",
+            "evidence": {
+                "attack_mass": round(float(attack_mass[idx]), 6),
+                "attack_mass_threshold": round(attack_mass_threshold, 6),
+                "target_attack": target,
+            },
             "applied": False,
         })
 
@@ -756,6 +834,15 @@ def apply_symbolic_rules_batch(
             for rule in traces[idx]:
                 if rule["rule_id"] == "R3_SUSPICIOUS_BENIGN_SCANNING":
                     rule["applied"] = True
+
+    apply_attack_mass = r4_mask & (r4_strength >= strong_rule_threshold)
+    for idx in np.flatnonzero(apply_attack_mass):
+        final[idx] = labels[int(best_attack_idx[idx])]
+        for rule in traces[idx]:
+            if rule["rule_id"] == "R4_SUSPICIOUS_BENIGN_ATTACK_MASS":
+                rule["applied"] = True
+            elif rule.get("applied") and rule.get("new_label") != final[idx]:
+                rule["applied"] = False
 
     for idx, rules in enumerate(traces):
         if not rules:

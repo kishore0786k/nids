@@ -67,16 +67,19 @@ Generated outputs:
 
 - `backend/app.py`: Flask API and dashboard server.
 - `backend/nids_engine.py`: model, metrics, charts, reliability, OOD, and defence backend.
-- `backend/neuro_symbolic.py`: auditable symbolic rules.
+- `src/neuro_symbolic.py`: auditable symbolic rules and rule analytics.
+- `src/experiment_runner.py`: canonical offline experiment/evaluation runner.
+- `src/project_paths.py`: shared project-root paths.
+- `src/app.py` and `src/backend_engine.py`: compatibility wrappers for older imports.
 - `frontend/`: dashboard UI.
 - `paper/`: IEEE support files and generated paper assets.
 - `results/publication_package/`: reproducibility package.
+- `docs/REFACTOR_CHANGELOG.md`: static-to-empirical refactor notes.
 
 ## Verification
 
 ```bat
-cd backend
-..\venv\Scripts\python.exe -m unittest test_smoke.py
+venv\Scripts\python.exe -m unittest backend.test_smoke
 ```
 
 ## Final Submission Notes

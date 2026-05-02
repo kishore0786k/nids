@@ -3,9 +3,9 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 import joblib
-import os
 from typing import List
 import copy
+from src.project_paths import MODEL_DIR, TRAIN_PATH
 
 class FederatedNeuroSymbolicNIDS:
     def __init__(self, num_clients=5, rounds=10, client_fraction=0.8):
@@ -39,7 +39,8 @@ class FederatedNeuroSymbolicNIDS:
     
     def federated_train(self, X_train: np.ndarray, y_train: np.ndarray):
         """Federated training simulation."""
-        os.makedirs('models/clients', exist_ok=True)
+        clients_dir = MODEL_DIR / "clients"
+        clients_dir.mkdir(parents=True, exist_ok=True)
         
         # Split data by simulated device types (add device_type column if needed)
         n_samples = len(X_train)
@@ -73,7 +74,7 @@ class FederatedNeuroSymbolicNIDS:
                 local_model.fit(X_selected, y_client)
                 
                 # Save client model
-                joblib.dump(local_model, f'models/clients/client_{client_id}.pkl')
+                joblib.dump(local_model, clients_dir / f"client_{client_id}.pkl")
                 client_models.append(local_model)
             
             # Global aggregation
@@ -81,12 +82,12 @@ class FederatedNeuroSymbolicNIDS:
         
         # Final global fine-tuning
         self.global_model.fit(X_train, y_train)
-        joblib.dump(self.global_model, 'models/federated_nsnids.pkl')
+        joblib.dump(self.global_model, MODEL_DIR / "federated_nsnids.pkl")
         print("Federated training completed!")
         return self.global_model
 
 if __name__ == "__main__":
-    train_df = pd.read_csv('../data/train_processed.csv')
+    train_df = pd.read_csv(TRAIN_PATH)
     X = train_df.drop(columns=['label']).values
     y = pd.factorize(train_df['label'])[0]
     

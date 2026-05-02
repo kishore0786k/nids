@@ -19,13 +19,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-import nids_engine as engine
+from backend import nids_engine as engine
+from src.project_paths import PAPER_DIR, RESULTS_DIR as ROOT_RESULTS_DIR
 
 
-ROOT = Path(__file__).resolve().parent.parent
-RESULTS_DIR = ROOT / "results" / "publication_package"
-PAPER_GEN = ROOT / "paper" / "generated"
-FIG_DIR = ROOT / "paper" / "figures" / "generated"
+RESULTS_DIR = ROOT_RESULTS_DIR / "publication_package"
+PAPER_GEN = PAPER_DIR / "generated"
+FIG_DIR = PAPER_DIR / "figures" / "generated"
 
 
 def ensure_dirs() -> None:
@@ -52,8 +52,8 @@ def generate_figures(charts: dict) -> list[dict]:
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     x = [int(v) for v in charts["improvement_curve"]["labels"]]
-    ax.plot(x, charts["improvement_curve"]["existing_accuracy"], marker="o", label="Existing system")
-    ax.plot(x, charts["improvement_curve"]["proposed_accuracy"], marker="s", label="Proposed NS-NIDS")
+    ax.plot(x, charts["improvement_curve"]["existing_accuracy"], marker="o", label="Baseline MLP")
+    ax.plot(x, charts["improvement_curve"]["proposed_accuracy"], marker="s", label="Neuro-symbolic")
     ax.set_xlabel("Evaluation window size")
     ax.set_ylabel("Accuracy")
     ax.set_title("Accuracy Improvement Curve")
@@ -64,8 +64,8 @@ def generate_figures(charts: dict) -> list[dict]:
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     labels = charts["per_class"]["labels"]
     idx = np.arange(len(labels))
-    ax.plot(idx, charts["per_class"]["existing_f1"], marker="o", label="Backend baseline MLP")
-    ax.plot(idx, charts["per_class"]["paper_proposed_f1"], marker="s", label="Proposed NS-NIDS")
+    ax.plot(idx, charts["per_class"]["existing_f1"], marker="o", label="Baseline MLP")
+    ax.plot(idx, charts["per_class"]["proposed_f1"], marker="s", label="Neuro-symbolic")
     ax.set_xticks(idx)
     ax.set_xticklabels(labels, rotation=25, ha="right")
     ax.set_ylabel("F1-score")
@@ -125,7 +125,7 @@ def write_tex_files(overview: dict, charts: dict, backend: dict, ablation: dict,
             "for NF-ToN-IoT-V2 traffic. The proposed backend combines neural "
             "classification with symbolic rule traces and an adaptive defence "
             f"workflow, achieving {proposed_acc:.4f} accuracy and {f1:.4f} macro-F1 "
-            f"against an existing-system accuracy of {existing_acc:.4f}."
+            f"against a live baseline-MLP accuracy of {existing_acc:.4f}."
         ),
         encoding="utf-8",
     )
@@ -150,8 +150,8 @@ def write_tex_files(overview: dict, charts: dict, backend: dict, ablation: dict,
         "\\hline\n"
         "System & Accuracy & Precision & Recall & Macro-F1 \\\\\n"
         "\\hline\n"
-        f"Existing & {charts['metric_comparison']['existing'][0]:.4f} & {charts['metric_comparison']['existing'][1]:.4f} & {charts['metric_comparison']['existing'][2]:.4f} & {charts['metric_comparison']['existing'][3]:.4f} \\\\\n"
-        f"Proposed & {charts['metric_comparison']['proposed'][0]:.4f} & {charts['metric_comparison']['proposed'][1]:.4f} & {charts['metric_comparison']['proposed'][2]:.4f} & {charts['metric_comparison']['proposed'][3]:.4f} \\\\\n"
+        f"Baseline MLP & {charts['metric_comparison']['existing'][0]:.4f} & {charts['metric_comparison']['existing'][1]:.4f} & {charts['metric_comparison']['existing'][2]:.4f} & {charts['metric_comparison']['existing'][3]:.4f} \\\\\n"
+        f"Neuro-symbolic & {charts['metric_comparison']['proposed'][0]:.4f} & {charts['metric_comparison']['proposed'][1]:.4f} & {charts['metric_comparison']['proposed'][2]:.4f} & {charts['metric_comparison']['proposed'][3]:.4f} \\\\\n"
         "\\hline\n"
         "\\end{tabular}\n",
         encoding="utf-8",
@@ -213,13 +213,14 @@ def write_tex_files(overview: dict, charts: dict, backend: dict, ablation: dict,
     )
 
 
-def build_package(limit: int = 2000) -> dict:
+def build_package(limit: int | None = None) -> dict:
     ensure_dirs()
     overview = engine.overview_data()
-    charts = engine.chart_data(limit)
-    ablation = engine.ablation_data(min(limit, 2000))
-    novelty = engine.novelty_data(min(limit, 2000))
     backend = engine.backend_status()
+    evaluation_limit = backend["test_rows"] if limit is None else limit
+    charts = engine.chart_data(evaluation_limit)
+    ablation = engine.ablation_data(evaluation_limit)
+    novelty = engine.novelty_data(evaluation_limit)
     figures = generate_figures(charts)
     write_tex_files(overview, charts, backend, ablation, novelty)
 
@@ -231,6 +232,11 @@ def build_package(limit: int = 2000) -> dict:
         "charts": charts,
         "ablation": ablation,
         "novelty": novelty,
+        "rule_analytics": charts.get("rule_analytics", {}),
+        "evidence_policy": {
+            "live_evaluation": "figures and tables are generated from backend recomputation on model predictions and test labels",
+            "paper_summary": "saved-paper-summary values are retained only under charts.paper_summary for traceability",
+        },
         "figures": figures,
         "readiness": {
             "software_package": True,
@@ -251,8 +257,9 @@ def build_package(limit: int = 2000) -> dict:
         f"- Backend: {backend['backend']}\n"
         f"- Test rows: {backend['test_rows']}\n"
         f"- Feature count: {backend['feature_count']}\n"
-        f"- Existing accuracy: {charts['metric_comparison']['existing'][0]:.4f}\n"
-        f"- Proposed accuracy: {charts['metric_comparison']['proposed'][0]:.4f}\n"
+        f"- Baseline MLP accuracy: {charts['metric_comparison']['existing'][0]:.4f}\n"
+        f"- Neuro-symbolic accuracy: {charts['metric_comparison']['proposed'][0]:.4f}\n"
+        f"- Changed predictions: {charts.get('rule_analytics', {}).get('changed_predictions', 0)}\n"
         f"- Calibration ECE: {novelty['calibration']['ece']:.4f}\n"
         f"- Conformal coverage: {novelty['conformal']['empirical_coverage']:.4f}\n"
         f"- OOD rate: {novelty['ood_drift']['ood_rate']:.4f}\n"

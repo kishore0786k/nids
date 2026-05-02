@@ -108,6 +108,18 @@ function chartScales() {
   };
 }
 
+function metricScale(values, pad = 0.02) {
+  const nums = values.map(Number).filter(Number.isFinite);
+  if (!nums.length) return { min: 0, max: 1 };
+  if (Math.min(...nums) === Math.max(...nums)) {
+    return { min: Math.max(0, nums[0] - pad), max: Math.min(1, nums[0] + pad) };
+  }
+  return {
+    min: Math.max(0, Math.min(...nums) - pad),
+    max: Math.min(1, Math.max(...nums) + pad),
+  };
+}
+
 function renderOverview() {
   const o = state.overview;
   const r = state.research;
@@ -129,7 +141,7 @@ function renderOverview() {
       labels: r.metrics.labels,
       datasets: [
         {
-          label: "Existing system",
+          label: "Baseline MLP",
           data: r.metrics.existing,
           backgroundColor: "rgba(244,183,64,.72)",
           borderColor: colors.amber,
@@ -137,7 +149,7 @@ function renderOverview() {
           borderRadius: 6,
         },
         {
-          label: "Proposed neuro-symbolic",
+          label: "Neuro-symbolic",
           data: r.metrics.proposed,
           backgroundColor: "rgba(25,211,197,.72)",
           borderColor: colors.cyan,
@@ -149,7 +161,7 @@ function renderOverview() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      scales: { ...chartScales(), y: { min: 0.75, max: 1, grid: { color: "rgba(255,255,255,.05)" } } },
+      scales: { ...chartScales(), y: { ...metricScale([...r.metrics.existing, ...r.metrics.proposed]), grid: { color: "rgba(255,255,255,.05)" } } },
       plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${pct(ctx.raw, 2)}` } } },
     },
   });
@@ -199,7 +211,7 @@ function renderAnalysis() {
       labels: c.improvement_curve.labels,
       datasets: [
         {
-          label: "Existing system",
+          label: "Baseline MLP",
           data: c.improvement_curve.existing_accuracy,
           borderColor: colors.amber,
           backgroundColor: "rgba(244,183,64,.16)",
@@ -207,7 +219,7 @@ function renderAnalysis() {
           fill: true,
         },
         {
-          label: "Proposed neuro-symbolic",
+          label: "Neuro-symbolic",
           data: c.improvement_curve.proposed_accuracy,
           borderColor: colors.cyan,
           backgroundColor: "rgba(25,211,197,.14)",
@@ -221,7 +233,7 @@ function renderAnalysis() {
       maintainAspectRatio: false,
       scales: {
         x: { title: { display: true, text: "Evaluation window size" }, grid: { color: "rgba(255,255,255,.05)" } },
-        y: { min: 0.82, max: 0.94, title: { display: true, text: "Accuracy" }, grid: { color: "rgba(255,255,255,.05)" } },
+        y: { ...metricScale([...c.improvement_curve.existing_accuracy, ...c.improvement_curve.proposed_accuracy]), title: { display: true, text: "Accuracy" }, grid: { color: "rgba(255,255,255,.05)" } },
       },
       plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${pct(ctx.raw, 2)}` } } },
     },
@@ -232,8 +244,8 @@ function renderAnalysis() {
     data: {
       labels: c.per_class.labels,
       datasets: [
-        { label: "Backend baseline MLP F1", data: c.per_class.existing_f1, backgroundColor: "rgba(244,183,64,.14)", borderColor: colors.amber, borderWidth: 2 },
-        { label: "Neuro-symbolic F1", data: c.per_class.paper_proposed_f1, backgroundColor: "rgba(25,211,197,.18)", borderColor: colors.cyan, borderWidth: 2 },
+        { label: "Baseline MLP F1", data: c.per_class.existing_f1, backgroundColor: "rgba(244,183,64,.14)", borderColor: colors.amber, borderWidth: 2 },
+        { label: "Neuro-symbolic F1", data: c.per_class.proposed_f1, backgroundColor: "rgba(25,211,197,.18)", borderColor: colors.cyan, borderWidth: 2 },
       ],
     },
     options: {
@@ -253,12 +265,12 @@ function renderAnalysis() {
   });
 
   makeChart("detectionChart", "chart-detection", {
-    type: "doughnut",
+    type: "bar",
     data: {
       labels: c.detection_counts.labels,
-      datasets: [{ label: "Flows", data: c.detection_counts.values, backgroundColor: ["rgba(255,91,110,.72)", "rgba(244,183,64,.72)", "rgba(25,211,197,.72)", "rgba(74,222,128,.72)"], borderColor: "#101720", borderWidth: 2 }],
+      datasets: [{ label: "Flows", data: c.detection_counts.values, backgroundColor: ["rgba(255,91,110,.72)", "rgba(244,183,64,.72)", "rgba(25,211,197,.72)", "rgba(155,135,255,.72)", "rgba(74,222,128,.72)"], borderColor: "#101720", borderWidth: 2, borderRadius: 5 }],
     },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "54%" },
+    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false } } },
   });
 
   makeChart("errorRateChart", "chart-error-rate", {

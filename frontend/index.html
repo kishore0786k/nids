@@ -70,7 +70,7 @@
         </div>
 
         <div class="kpi-grid" id="kpi-grid">
-          <article class="kpi"><span>Accuracy lift</span><strong id="kpi-lift">--</strong><small>Proposed vs existing</small></article>
+          <article class="kpi"><span>Accuracy lift</span><strong id="kpi-lift">--</strong><small>Neuro-symbolic vs baseline</small></article>
           <article class="kpi"><span>Macro F1</span><strong id="kpi-f1">--</strong><small>Journal metric</small></article>
           <article class="kpi"><span>Attack classes</span><strong id="kpi-classes">--</strong><small>Multi-class threat taxonomy</small></article>
           <article class="kpi"><span>Test samples</span><strong id="kpi-samples">--</strong><small>Cached for fast navigation</small></article>
@@ -87,7 +87,7 @@
         <div class="panel-grid two">
           <section class="panel">
             <div class="panel-head">
-              <div><h3>Existing vs Proposed</h3><p>Core metrics rendered inside the dashboard.</p></div>
+              <div><h3>Baseline vs Neuro-Symbolic</h3><p>Core metrics recomputed for the selected backend window.</p></div>
               <button class="icon-btn" data-export-chart="comparisonChart">PNG</button>
             </div>
             <div class="chart-box"><canvas id="chart-comparison"></canvas></div>
@@ -107,7 +107,7 @@
           <div>
             <span class="section-label">Dynamic charts</span>
             <h3>Dashboard-Native Research Graphs</h3>
-            <p>Six backend-computed charts comparing the proposed model with the existing system. No external plot window is required.</p>
+            <p>Backend-computed charts comparing the neuro-symbolic model with the baseline. No external plot window is required.</p>
           </div>
           <div class="control-row">
             <label for="sample-window">Window</label>
@@ -119,7 +119,7 @@
         <div class="charts-board">
           <section class="panel">
             <div class="panel-head">
-              <div><h3>Accuracy Improvement Curve</h3><p>Existing baseline and proposed model across increasing evaluation windows.</p></div>
+              <div><h3>Accuracy Improvement Curve</h3><p>Baseline and neuro-symbolic metrics across recomputed evaluation windows.</p></div>
               <button class="icon-btn" data-export-chart="analysisComparisonChart">PNG</button>
             </div>
             <div class="chart-box"><canvas id="chart-analysis-comparison"></canvas></div>

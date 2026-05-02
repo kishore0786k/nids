@@ -3,13 +3,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from imblearn.under_sampling import RandomUnderSampler
 import joblib
-import os
+from src.project_paths import DATA_DIR, MODEL_DIR
 
-DATA_PATH = os.path.join("data", "NF-ToN-IoT-V2.csv")
+DATA_PATH = DATA_DIR / "NF-ToN-IoT-V2.csv"
 FINAL_LABEL_COL = "label"
-SCALER_PATH = os.path.join("models", "scaler.pkl")
-TRAIN_OUT = os.path.join("data", "train_processed.csv")
-TEST_OUT = os.path.join("data", "test_processed.csv")
+SCALER_PATH = MODEL_DIR / "scaler.pkl"
+TRAIN_OUT = DATA_DIR / "train_processed.csv"
+TEST_OUT = DATA_DIR / "test_processed.csv"
 
 # Map raw Attack types to 7 final classes
 LABEL_MAP = {
@@ -63,8 +63,8 @@ def load_and_clean():
     return num_df
 
 def preprocess_and_split(test_size=0.2, random_state=42):
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("data", exist_ok=True)
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     df = load_and_clean()
     X = df.drop(columns=[FINAL_LABEL_COL])

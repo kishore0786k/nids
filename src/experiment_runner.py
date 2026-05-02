@@ -4,7 +4,6 @@ import argparse
 import json
 import math
 from collections import Counter
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -21,13 +20,12 @@ from sklearn.model_selection import train_test_split
 
 from src.baseline_models import get_models
 from src.neuro_symbolic import apply_symbolic_rules, build_symbolic_context
+from src.project_paths import PUBLICATION_EXPERIMENT_PATH, TEST_PATH, TRAIN_PATH
 
 
 LABEL_COLUMN = "label"
-TRAIN_PATH = Path("data/train_processed.csv")
-TEST_PATH = Path("data/test_processed.csv")
 EVALUATED_BASELINES = ("RandomForest", "MLP")
-RESULTS_PATH = Path("results/publication_experiment.json")
+RESULTS_PATH = PUBLICATION_EXPERIMENT_PATH
 
 
 def _set_reproducible_params(model: Any, seed: int = 42) -> Any:

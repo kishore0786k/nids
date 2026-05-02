@@ -1,40 +1,42 @@
-import pandas as pd
-from sklearn.metrics import classification_report
-from unified_nsnids_pipeline import UnifiedNeuroSymbolicNIDS
-import os
+"""Generate paper-ready metrics from the canonical live backend pipeline."""
 
-def run_comprehensive_evaluation():
-    """Generate IEEE paper-ready metrics and plots."""
-    os.makedirs('results/paper', exist_ok=True)
-    unified_nids = UnifiedNeuroSymbolicNIDS()
-    
-    test_df = pd.read_csv('data/test_processed.csv')
-    X_test = test_df.drop(columns=['label'])
-    y_test = test_df['label']
-    
-    # Full pipeline predictions
-    results = unified_nids.predict_full_pipeline(test_df.head(1000))
-    
-    # Metrics
-    ns_labels = results['final_ns_label'].map({
-        'DoS/DDoS': 'DoS/DDoS', 'ZeroDay': 'Attack', 'Benign': 'Benign'
-    }).fillna('Attack')  # Simplified for eval
-    
-    report = classification_report(y_test.head(1000), ns_labels, output_dict=True)
-    
-    # Save paper-ready results
+from __future__ import annotations
+
+import pandas as pd
+
+from backend import nids_engine as engine
+from src.project_paths import RESULTS_DIR
+
+
+def run_comprehensive_evaluation(limit: int = 2000) -> dict:
+    """Generate empirical dashboard/publication metrics without placeholders."""
+    output_dir = RESULTS_DIR / "paper"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    research = engine.analyse_window(limit)
+    charts = engine.chart_data(limit)
     metrics = {
-        'NeuroSymbolic_F1': report['weighted avg']['f1-score'],
-        'ZeroDay_Detected': (results['final_ns_label'] == 'ZeroDay').sum(),
-        'Adversarial_Robust': 0.942,
-        'Federated_F1': 0.981
+        "limit": research["limit"],
+        "baseline_accuracy": research["window_metrics"]["baseline_mlp"][0],
+        "neuro_symbolic_accuracy": research["window_metrics"]["neuro_symbolic"][0],
+        "baseline_macro_f1": research["window_metrics"]["baseline_mlp"][3],
+        "neuro_symbolic_macro_f1": research["window_metrics"]["neuro_symbolic"][3],
+        "rule_triggers": research["rule_analytics"]["rule_trigger_count"],
+        "changed_predictions": research["rule_analytics"]["changed_predictions"],
+        "false_negative_attack_rescues": research["rule_analytics"]["false_negative_attack_rescues"],
     }
-    
-    pd.DataFrame([metrics]).to_csv('results/paper/final_metrics.csv')
-    results.to_csv('results/paper/unified_results.csv')
-    
-    print("📊 Paper-ready evaluation complete!")
+
+    pd.DataFrame([metrics]).to_csv(output_dir / "final_metrics.csv", index=False)
+    pd.DataFrame(research["rows"]).to_csv(output_dir / "unified_results.csv", index=False)
+    pd.DataFrame(charts["computation_log"], columns=["chart_computation_step"]).to_csv(
+        output_dir / "chart_computation_log.csv",
+        index=False,
+    )
+
+    print("Paper-ready evaluation complete.")
     print(metrics)
+    return metrics
+
 
 if __name__ == "__main__":
     run_comprehensive_evaluation()

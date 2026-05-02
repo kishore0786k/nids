@@ -13,8 +13,7 @@ if exist "venv\Scripts\python.exe" (
 echo ============================================
 echo  Generate publication package
 echo ============================================
-cd backend
-"%PYTHON%" generate_publication_package.py
+"%PYTHON%" -m backend.generate_publication_package
 
 echo.
 echo Outputs:

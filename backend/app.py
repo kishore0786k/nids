@@ -1,20 +1,18 @@
 """
 Flask backend API for the Neuro-Symbolic NIDS research package.
 
-The browser UI is served from ../frontend, while all model/data/evaluation
+The browser UI is served from the repository frontend directory, while all model/data/evaluation
 logic is isolated in nids_engine.py.
 """
 
-from pathlib import Path
+import os
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-import nids_engine as engine
+from backend import nids_engine as engine
+from src.project_paths import FRONTEND_DIR, PROJECT_ROOT
 
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = ROOT_DIR / "frontend"
 
 app = Flask(
     __name__,
@@ -98,8 +96,8 @@ def api_comparison():
         "n_samples": data["limit"],
         "base_accuracy": data["window_metrics"]["baseline_mlp"][0],
         "ns_accuracy": data["window_metrics"]["neuro_symbolic"][0],
-        "paper_existing_accuracy": data["metrics"]["existing"][0],
-        "paper_proposed_accuracy": data["metrics"]["proposed"][0],
+        "paper_existing_accuracy": data["paper_summary"]["existing"][0],
+        "paper_proposed_accuracy": data["paper_summary"]["proposed"][0],
         "table": [
             {
                 "idx": row["idx"],
@@ -133,6 +131,8 @@ def api_defense_status():
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
     print("Neuro-Symbolic NIDS backend running")
-    print("Dashboard: http://127.0.0.1:5000")
-    app.run(debug=False, threaded=True, port=5000)
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"Dashboard: http://127.0.0.1:{port}")
+    app.run(debug=False, threaded=True, port=port)

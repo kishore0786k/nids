@@ -1,57 +1,81 @@
 import unittest
+from pathlib import Path
 
-from app import app
-import nids_engine as engine
-from neuro_symbolic import apply_symbolic_rules
+from backend.app import app
+from backend import nids_engine as engine
+from src.neuro_symbolic import apply_symbolic_rules
+from src.project_paths import PROJECT_ROOT
 
 
-class NidsApiSmokeTests(unittest.TestCase):
-    def setUp(self):
-        self.client = app.test_client()
+class NidsApiRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = app.test_client()
 
     def get_json(self, endpoint):
         response = self.client.get(endpoint)
-        self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:300])
+        self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:500])
         return response.get_json()
 
     def post_json(self, endpoint, payload):
         response = self.client.post(endpoint, json=payload)
-        self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:300])
+        self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:500])
         return response.get_json()
 
-    def test_backend_status(self):
+    def test_backend_status_uses_canonical_engine(self):
         data = self.get_json("/api/backend/status")
         self.assertEqual(data["backend"], "Flask + nids_engine.py")
         self.assertTrue(data["model_loaded"])
         self.assertGreater(data["test_rows"], 0)
-        self.assertGreater(data["feature_count"], 0)
+        self.assertIn("live_evaluation", data["evidence_separation"])
+        self.assertTrue(Path(data["model_path"]).is_absolute())
 
-    def test_charts_contract(self):
-        data = self.get_json("/api/charts?limit=200")
-        for key in (
-            "improvement_curve",
-            "per_class",
-            "confidence_histogram",
-            "detection_counts",
-            "class_error_rate",
-            "roc_curve",
-        ):
-            self.assertIn(key, data)
-        self.assertGreater(len(data["improvement_curve"]["labels"]), 2)
+    def test_charts_are_live_non_static_series(self):
+        data = self.get_json("/api/charts?limit=750")
+        curve = data["improvement_curve"]
+        self.assertEqual(curve["source"], "live-window recomputation")
+        self.assertGreaterEqual(len(curve["labels"]), 3)
+        self.assertGreater(len(set(curve["existing_accuracy"])), 1)
+        self.assertGreater(len(set(curve["proposed_f1"])), 1)
+        self.assertNotIn("paper_proposed_f1", data["per_class"])
+        self.assertEqual(data["per_class"]["source"], "live-window classification_report")
+        self.assertTrue(data["computation_log"])
 
-    def test_research_contract(self):
-        data = self.get_json("/api/research?limit=200")
-        self.assertIn("metrics", data)
-        self.assertIn("window_metrics", data)
-        self.assertIn("confusion_matrix", data)
-        self.assertIn("rows", data)
+    def test_window_change_changes_chart_evidence(self):
+        small = self.get_json("/api/charts?limit=200")
+        large = self.get_json("/api/charts?limit=750")
+        self.assertNotEqual(small["improvement_curve"]["labels"], large["improvement_curve"]["labels"])
+        self.assertNotEqual(small["detection_counts"]["values"], large["detection_counts"]["values"])
+        self.assertNotEqual(small["confidence_histogram"]["values"], large["confidence_histogram"]["values"])
 
-    def test_defense_lifecycle(self):
-        analysed = self.post_json("/api/defense/analyse", {"idx": 1})
-        self.assertIn("incident", analysed)
-        incident_id = analysed["incident"]["incident_id"]
-        contained = self.post_json("/api/defense/contain", {"incident_id": incident_id})
-        self.assertIn(contained["incident"]["status"], {"contained", "monitoring"})
+    def test_detection_and_containment_counts_are_distinct_concepts(self):
+        data = self.get_json("/api/charts?limit=750")
+        counts = dict(zip(data["detection_counts"]["labels"], data["detection_counts"]["values"]))
+        self.assertIn("True attack labels", counts)
+        self.assertIn("Neuro-symbolic attack predictions", counts)
+        self.assertIn("Containment candidates", counts)
+        self.assertIn("High-confidence block recommendations", counts)
+        self.assertLessEqual(counts["Containment candidates"], counts["Neuro-symbolic attack predictions"])
+        self.assertLessEqual(counts["High-confidence block recommendations"], counts["Containment candidates"])
+        self.assertGreater(len(set(counts.values())), 2)
+
+    def test_symbolic_layer_changes_predictions_and_reports_rules(self):
+        data = self.get_json("/api/research?limit=750")
+        analytics = data["rule_analytics"]
+        self.assertGreater(analytics["rule_trigger_count"], 0)
+        self.assertGreater(analytics["changed_predictions"], 0)
+        self.assertGreater(analytics["false_negative_attack_rescues"], 0)
+        self.assertIn("R4_SUSPICIOUS_BENIGN_ATTACK_MASS", analytics["per_rule_trigger_count"])
+        self.assertGreater(analytics["per_rule_trigger_frequency"]["R4_SUSPICIOUS_BENIGN_ATTACK_MASS"], 0)
+        self.assertEqual(data["metrics"]["source"], "live-window evaluation from model predictions and test labels")
+        self.assertIn("saved-paper-summary", data["paper_summary"]["source"])
+
+    def test_streamlit_dashboard_has_no_fixed_performance_literals(self):
+        text = (PROJECT_ROOT / "src" / "app_streamlit.py").read_text(encoding="utf-8")
+        forbidden = ("98.1%", "94.2%", "0.900", "0.942", "0.981")
+        for literal in forbidden:
+            self.assertNotIn(literal, text)
+        self.assertIn("get_backend_json", text)
 
     def test_invalid_inputs_are_sanitized(self):
         flow = self.get_json("/api/single-flow?idx=not-a-number")
@@ -60,24 +84,27 @@ class NidsApiSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(research["limit"], 50)
         charts = self.get_json("/api/charts?limit=-500")
         self.assertGreaterEqual(charts["limit"], 100)
+        novelty = self.get_json("/api/novelty?limit=300&alpha=not-a-number")
+        self.assertEqual(novelty["alpha"], 0.1)
 
-    def test_ablation_contract(self):
-        data = self.get_json("/api/ablation?limit=200")
-        self.assertIn("systems", data)
-        self.assertEqual(data["systems"][0]["name"], "Baseline MLP")
-        self.assertEqual(data["systems"][1]["name"], "Neuro-symbolic")
-        self.assertEqual(len(data["delta"]), len(data["labels"]))
+    def test_defense_lifecycle(self):
+        analysed = self.post_json("/api/defense/analyse", {"idx": 1})
+        self.assertIn("incident", analysed)
+        incident_id = analysed["incident"]["incident_id"]
+        contained = self.post_json("/api/defense/contain", {"incident_id": incident_id})
+        self.assertIn(contained["incident"]["status"], {"contained", "monitoring"})
 
-    def test_novelty_contract(self):
-        data = self.get_json("/api/novelty?limit=300&alpha=0.1")
-        self.assertIn("uncertainty", data)
-        self.assertIn("calibration", data)
-        self.assertIn("conformal", data)
-        self.assertIn("ood_drift", data)
-        self.assertIn("review_queue", data)
-        self.assertGreaterEqual(data["conformal"]["empirical_coverage"], 0.0)
-        self.assertLessEqual(data["conformal"]["empirical_coverage"], 1.0)
-        self.assertIn("ece", data["calibration"])
+    def test_ablation_and_novelty_are_empirical(self):
+        ablation = self.get_json("/api/ablation?limit=750")
+        self.assertEqual(ablation["systems"][0]["name"], "Baseline MLP")
+        self.assertEqual(ablation["systems"][1]["name"], "Neuro-symbolic")
+        self.assertEqual(len(ablation["delta"]), len(ablation["labels"]))
+        self.assertNotEqual(ablation["systems"][0]["metrics"], ablation["systems"][1]["metrics"])
+
+        novelty = self.get_json("/api/novelty?limit=750&alpha=0.1")
+        self.assertGreaterEqual(novelty["conformal"]["empirical_coverage"], 0.0)
+        self.assertLessEqual(novelty["conformal"]["empirical_coverage"], 1.0)
+        self.assertGreater(len(novelty["chart_ready"]["calibration_bins"]), 0)
 
     def test_symbolic_adversarial_rule_uses_explicit_probabilities(self):
         label, rules, strength = apply_symbolic_rules(
@@ -107,7 +134,7 @@ class NidsApiSmokeTests(unittest.TestCase):
     def test_missing_model_file_has_clear_error(self):
         old_path = engine.MODEL_PATH
         try:
-            engine.MODEL_PATH = old_path + ".missing"
+            engine.MODEL_PATH = Path(str(old_path) + ".missing")
             engine._reset_resources()
             with self.assertRaises(engine.ResourceLoadError) as ctx:
                 engine.load_resources()

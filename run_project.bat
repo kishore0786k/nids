@@ -13,7 +13,6 @@ if exist "venv\Scripts\python.exe" (
 echo ============================================
 echo  Launch Neuro-Symbolic NIDS backend + dashboard
 echo ============================================
-cd backend
-"%PYTHON%" app.py
+"%PYTHON%" -m backend.app
 
 pause

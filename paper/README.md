@@ -13,8 +13,7 @@ Run from the project root:
 or:
 
 ```powershell
-cd backend
-..\venv\Scripts\python.exe generate_publication_package.py
+.\venv\Scripts\python.exe -m backend.generate_publication_package
 ```
 
 ## Outputs

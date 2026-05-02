@@ -6,6 +6,7 @@
     "model_loaded": true,
     "model_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\models\\ns_nids_model.pkl",
     "test_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\data\\test_processed.csv",
+    "train_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\data\\train_processed.csv",
     "test_rows": 22763,
     "feature_count": 39,
     "classes": [
@@ -18,18 +19,16 @@
       "XSS/MITM"
     ],
     "robust_model_loaded": true,
-    "cached_analysis_windows": [
-      2000
-    ],
-    "cached_chart_windows": [
-      2000
-    ],
-    "cached_novelty_windows": [
-      [
-        2000,
-        0.1
-      ]
-    ],
+    "symbolic_context_loaded": false,
+    "symbolic_calibration": {},
+    "evidence_separation": {
+      "live_evaluation": "computed by nids_engine.py from model predictions and processed test data",
+      "paper_summary": "loaded from results/metrics.json only when explicitly requested",
+      "publication_package": "generated artifacts under results/publication_package and paper/generated"
+    },
+    "cached_analysis_windows": [],
+    "cached_chart_windows": [],
+    "cached_novelty_windows": [],
     "incident_count": 0,
     "note": "Frontend data is served from Flask endpoints backed by model and CSV resources."
   },
@@ -63,7 +62,7 @@
         3252
       ]
     },
-    "per_class_metrics": {
+    "saved_paper_per_class_metrics": {
       "Backdoor": {
         "precision": 0.9994,
         "recall": 0.996,
@@ -107,25 +106,8 @@
         "support": 3252
       }
     },
-    "existing": {
-      "accuracy": 0.9,
-      "precision_macro": 0.88,
-      "recall_macro": 0.87,
-      "f1_macro": 0.875
-    },
-    "proposed": {
-      "accuracy": 0.9222422352062558,
-      "precision_macro": 0.9232482204282467,
-      "recall_macro": 0.9222454753659458,
-      "f1_macro": 0.9215227981972147
-    },
-    "total_samples": 22763,
-    "num_classes": 7,
-    "max_index": 22762
-  },
-  "charts": {
-    "limit": 2000,
-    "metric_comparison": {
+    "paper_summary": {
+      "source": "saved-paper-summary evidence from results/metrics.json",
       "labels": [
         "Accuracy",
         "Precision",
@@ -143,46 +125,106 @@
         0.923248,
         0.922245,
         0.921523
+      ]
+    },
+    "total_samples": 22763,
+    "num_classes": 7,
+    "max_index": 22762
+  },
+  "charts": {
+    "limit": 22763,
+    "metric_comparison": {
+      "labels": [
+        "Accuracy",
+        "Precision",
+        "Recall",
+        "F1"
+      ],
+      "existing": [
+        0.922242,
+        0.923248,
+        0.922245,
+        0.921523
+      ],
+      "proposed": [
+        0.922374,
+        0.923418,
+        0.922377,
+        0.921693
       ],
       "backend_window_baseline": [
-        0.909,
-        0.911203,
-        0.90758,
-        0.907048
+        0.922242,
+        0.923248,
+        0.922245,
+        0.921523
       ],
       "backend_window_neuro_symbolic": [
-        0.909,
-        0.911203,
-        0.90758,
-        0.907048
+        0.922374,
+        0.923418,
+        0.922377,
+        0.921693
+      ],
+      "source": "live-window evaluation from model predictions and test labels"
+    },
+    "paper_summary": {
+      "source": "saved-paper-summary evidence from results/metrics.json",
+      "labels": [
+        "Accuracy",
+        "Precision",
+        "Recall",
+        "F1"
+      ],
+      "existing": [
+        0.9,
+        0.88,
+        0.87,
+        0.875
+      ],
+      "proposed": [
+        0.922242,
+        0.923248,
+        0.922245,
+        0.921523
       ]
     },
     "improvement_curve": {
       "labels": [
         "100",
-        "300",
-        "500",
-        "1000",
-        "1500",
-        "2000"
+        "5691",
+        "11382",
+        "17072",
+        "22763"
       ],
       "existing_accuracy": [
-        0.88625,
-        0.891278,
-        0.893624,
-        0.896811,
-        0.898676,
-        0.9
-      ],
-      "proposed_accuracy": [
-        0.915171,
-        0.917757,
-        0.918963,
-        0.920602,
-        0.921561,
+        0.89,
+        0.917941,
+        0.921016,
+        0.921216,
         0.922242
       ],
-      "note": "Curve uses saved paper-baseline summary and proposed summary across increasing evaluation windows."
+      "proposed_accuracy": [
+        0.89,
+        0.917238,
+        0.920928,
+        0.921275,
+        0.922374
+      ],
+      "existing_f1": [
+        0.895863,
+        0.916932,
+        0.919897,
+        0.920508,
+        0.921523
+      ],
+      "proposed_f1": [
+        0.897772,
+        0.916255,
+        0.919833,
+        0.920603,
+        0.921693
+      ],
+      "source": "live-window recomputation",
+      "note": "Each point is recomputed from model predictions and labels for that exact prefix window."
     },
     "per_class": {
       "labels": [
@@ -195,24 +237,6 @@
         "XSS/MITM"
       ],
       "existing_f1": [
-        0.996429,
-        0.929078,
-        0.920578,
-        0.769857,
-        0.874388,
-        0.969072,
-        0.889937
-      ],
-      "proposed_f1": [
-        0.996429,
-        0.929078,
-        0.920578,
-        0.769857,
-        0.874388,
-        0.969072,
-        0.889937
-      ],
-      "paper_proposed_f1": [
         0.997689,
         0.935061,
         0.926897,
@@ -220,7 +244,17 @@
         0.901568,
         0.965817,
         0.896845
-      ]
+      ],
+      "proposed_f1": [
+        0.997535,
+        0.938492,
+        0.926814,
+        0.8266,
+        0.900925,
+        0.965143,
+        0.89634
+      ],
+      "source": "live-window classification_report"
     },
     "confidence_histogram": {
       "labels": [
@@ -238,29 +272,32 @@
       "values": [
         0,
         0,
-        4,
-        11,
-        32,
-        73,
-        69,
-        139,
-        155,
-        1517
+        8,
+        77,
+        392,
+        771,
+        833,
+        1521,
+        1507,
+        17654
       ]
     },
     "detection_counts": {
       "labels": [
-        "True attacks",
-        "Baseline MLP",
-        "Neuro-symbolic",
-        "Containment candidates"
+        "True attack labels",
+        "Baseline attack predictions",
+        "Neuro-symbolic attack predictions",
+        "Containment candidates",
+        "High-confidence block recommendations"
       ],
       "values": [
-        1715,
-        1721,
-        1721,
-        1721
-      ]
+        19511,
+        19455,
+        19528,
+        17687,
+        15537
+      ],
+      "source": "live-window predictions and confidence thresholds"
     },
     "class_error_rate": {
       "labels": [
@@ -273,353 +310,341 @@
         "XSS/MITM"
       ],
       "values": [
-        0.007117,
-        0.080702,
-        0.076087,
-        0.310219,
-        0.094595,
-        0.037543,
-        0.040678
+        0.003999,
+        0.063961,
+        0.067343,
+        0.235547,
+        0.071648,
+        0.042128,
+        0.058733
       ]
     },
     "roc_curve": {
-      "auc": 0.991044,
+      "auc": 0.994349,
       "points": [
         {
           "x": 0.0,
           "y": 0.0
         },
         {
-          "x": 0.00017,
-          "y": 0.1975
+          "x": 7e-05,
+          "y": 0.19839
         },
         {
-          "x": 0.00017,
-          "y": 0.2405
+          "x": 0.00013,
+          "y": 0.34745
         },
         {
-          "x": 0.00017,
-          "y": 0.5085
+          "x": 0.00019,
+          "y": 0.49343
         },
         {
-          "x": 0.0005,
-          "y": 0.5745
+          "x": 0.00031,
+          "y": 0.55814
         },
         {
-          "x": 0.00092,
-          "y": 0.6235
+          "x": 0.00062,
+          "y": 0.61912
         },
         {
-          "x": 0.00117,
-          "y": 0.663
+          "x": 0.00089,
+          "y": 0.6779
         },
         {
-          "x": 0.0015,
-          "y": 0.696
+          "x": 0.00119,
+          "y": 0.71678
         },
         {
-          "x": 0.00242,
-          "y": 0.7215
+          "x": 0.00204,
+          "y": 0.74898
         },
         {
-          "x": 0.003,
-          "y": 0.7485
+          "x": 0.00286,
+          "y": 0.79524
         },
         {
-          "x": 0.00417,
-          "y": 0.774
+          "x": 0.00382,
+          "y": 0.82155
         },
         {
-          "x": 0.005,
-          "y": 0.796
+          "x": 0.00525,
+          "y": 0.84796
         },
         {
-          "x": 0.00575,
-          "y": 0.812
+          "x": 0.00625,
+          "y": 0.8686
         },
         {
-          "x": 0.00692,
-          "y": 0.822
+          "x": 0.0075,
+          "y": 0.88547
         },
         {
-          "x": 0.00783,
-          "y": 0.844
+          "x": 0.00905,
+          "y": 0.90085
         },
         {
-          "x": 0.0085,
-          "y": 0.8605
+          "x": 0.01099,
+          "y": 0.91398
         },
         {
-          "x": 0.00967,
-          "y": 0.8775
+          "x": 0.01335,
+          "y": 0.92418
         },
         {
-          "x": 0.0115,
-          "y": 0.8885
+          "x": 0.01646,
+          "y": 0.93292
         },
         {
-          "x": 0.01292,
-          "y": 0.8995
+          "x": 0.01933,
+          "y": 0.94175
         },
         {
-          "x": 0.01483,
-          "y": 0.911
+          "x": 0.02269,
+          "y": 0.94834
         },
         {
-          "x": 0.01675,
-          "y": 0.916
+          "x": 0.02678,
+          "y": 0.95532
         },
         {
-          "x": 0.01917,
-          "y": 0.923
+          "x": 0.03104,
+          "y": 0.96134
         },
         {
-          "x": 0.02225,
-          "y": 0.9285
+          "x": 0.03644,
+          "y": 0.96683
         },
         {
-          "x": 0.02525,
-          "y": 0.9345
+          "x": 0.04298,
+          "y": 0.97246
         },
         {
-          "x": 0.02767,
-          "y": 0.9395
+          "x": 0.05085,
+          "y": 0.97755
         },
         {
-          "x": 0.03058,
-          "y": 0.9465
+          "x": 0.05858,
+          "y": 0.98159
         },
         {
-          "x": 0.03517,
-          "y": 0.951
+          "x": 0.06481,
+          "y": 0.98572
         },
         {
-          "x": 0.04333,
-          "y": 0.9545
+          "x": 0.07342,
+          "y": 0.98761
         },
         {
-          "x": 0.04783,
-          "y": 0.96
+          "x": 0.08063,
+          "y": 0.98889
         },
         {
-          "x": 0.05167,
-          "y": 0.964
+          "x": 0.08944,
+          "y": 0.9902
         },
         {
-          "x": 0.05575,
-          "y": 0.968
+          "x": 0.10466,
+          "y": 0.9913
         },
         {
-          "x": 0.06058,
-          "y": 0.972
+          "x": 0.11634,
+          "y": 0.99249
         },
         {
-          "x": 0.07,
-          "y": 0.9785
+          "x": 0.12651,
+          "y": 0.99367
         },
         {
-          "x": 0.07758,
-          "y": 0.981
+          "x": 0.14111,
+          "y": 0.99425
         },
         {
-          "x": 0.08533,
-          "y": 0.983
+          "x": 0.15193,
+          "y": 0.99482
         },
         {
-          "x": 0.09125,
-          "y": 0.9845
+          "x": 0.17502,
+          "y": 0.99517
         },
         {
-          "x": 0.10092,
-          "y": 0.985
+          "x": 0.1882,
+          "y": 0.99574
         },
         {
-          "x": 0.11842,
-          "y": 0.9875
+          "x": 0.20144,
+          "y": 0.9964
         },
         {
-          "x": 0.13133,
-          "y": 0.9885
+          "x": 0.21719,
+          "y": 0.99679
         },
         {
-          "x": 0.14275,
-          "y": 0.989
+          "x": 0.24139,
+          "y": 0.99697
         },
         {
-          "x": 0.15983,
-          "y": 0.9895
+          "x": 0.25076,
+          "y": 0.99723
         },
         {
-          "x": 0.17892,
-          "y": 0.99
+          "x": 0.26938,
+          "y": 0.99736
         },
         {
-          "x": 0.19892,
-          "y": 0.991
+          "x": 0.28736,
+          "y": 0.99745
         },
         {
-          "x": 0.23133,
-          "y": 0.992
+          "x": 0.30758,
+          "y": 0.9978
         },
         {
-          "x": 0.25575,
-          "y": 0.992
+          "x": 0.32138,
+          "y": 0.99802
         },
         {
-          "x": 0.27092,
-          "y": 0.993
+          "x": 0.33447,
+          "y": 0.99811
         },
         {
-          "x": 0.28767,
-          "y": 0.993
+          "x": 0.34634,
+          "y": 0.99815
         },
         {
-          "x": 0.30108,
-          "y": 0.9935
+          "x": 0.35979,
+          "y": 0.99824
         },
         {
-          "x": 0.314,
-          "y": 0.994
+          "x": 0.38577,
+          "y": 0.99851
         },
         {
-          "x": 0.33008,
-          "y": 0.994
+          "x": 0.3987,
+          "y": 0.99873
         },
         {
-          "x": 0.34408,
-          "y": 0.9945
+          "x": 0.40983,
+          "y": 0.99895
         },
         {
-          "x": 0.3665,
-          "y": 0.995
+          "x": 0.41996,
+          "y": 0.99903
         },
         {
-          "x": 0.37858,
-          "y": 0.995
+          "x": 0.43026,
+          "y": 0.99908
         },
         {
-          "x": 0.38825,
-          "y": 0.995
+          "x": 0.44104,
+          "y": 0.99908
         },
         {
-          "x": 0.4045,
-          "y": 0.9955
+          "x": 0.45276,
+          "y": 0.99917
         },
         {
-          "x": 0.4135,
-          "y": 0.9955
+          "x": 0.4816,
+          "y": 0.9993
         },
         {
-          "x": 0.42017,
-          "y": 0.996
+          "x": 0.49201,
+          "y": 0.99934
         },
         {
-          "x": 0.42683,
-          "y": 0.9975
+          "x": 0.50138,
+          "y": 0.99947
         },
         {
-          "x": 0.43783,
-          "y": 0.9975
+          "x": 0.51574,
+          "y": 0.99952
         },
         {
-          "x": 0.44742,
-          "y": 0.9975
+          "x": 0.52937,
+          "y": 0.99956
         },
         {
-          "x": 0.458,
-          "y": 0.9975
+          "x": 0.53905,
+          "y": 0.9996
         },
         {
-          "x": 0.47033,
-          "y": 0.998
+          "x": 0.54879,
+          "y": 0.99965
         },
         {
-          "x": 0.48317,
-          "y": 0.998
+          "x": 0.57218,
+          "y": 0.99965
         },
         {
-          "x": 0.50675,
-          "y": 0.998
+          "x": 0.58528,
+          "y": 0.99965
         },
         {
-          "x": 0.5185,
-          "y": 0.9985
+          "x": 0.59479,
+          "y": 0.99965
         },
         {
-          "x": 0.53858,
-          "y": 0.9985
+          "x": 0.62935,
+          "y": 0.99965
         },
         {
-          "x": 0.54992,
-          "y": 0.999
+          "x": 0.6401,
+          "y": 0.99965
         },
         {
-          "x": 0.56225,
-          "y": 0.9995
+          "x": 0.64923,
+          "y": 0.99965
         },
         {
-          "x": 0.592,
-          "y": 0.9995
+          "x": 0.66222,
+          "y": 0.99965
         },
         {
-          "x": 0.62008,
-          "y": 0.9995
+          "x": 0.6761,
+          "y": 0.99965
         },
         {
-          "x": 0.63858,
-          "y": 0.9995
+          "x": 0.68535,
+          "y": 0.99969
         },
         {
-          "x": 0.64642,
-          "y": 0.9995
+          "x": 0.70472,
+          "y": 0.99969
         },
         {
-          "x": 0.65592,
-          "y": 0.9995
+          "x": 0.72885,
+          "y": 0.99969
         },
         {
-          "x": 0.67583,
-          "y": 0.9995
+          "x": 0.75784,
+          "y": 0.99969
         },
         {
-          "x": 0.68917,
-          "y": 0.9995
+          "x": 0.76886,
+          "y": 0.99969
         },
         {
-          "x": 0.69675,
-          "y": 0.9995
+          "x": 0.77649,
+          "y": 0.99969
         },
         {
-          "x": 0.73108,
-          "y": 0.9995
+          "x": 0.84622,
+          "y": 0.99969
         },
         {
-          "x": 0.76183,
-          "y": 0.9995
+          "x": 0.87604,
+          "y": 0.99969
         },
         {
-          "x": 0.77225,
-          "y": 0.9995
+          "x": 0.89402,
+          "y": 0.99978
         },
         {
-          "x": 0.80733,
-          "y": 0.9995
+          "x": 0.94208,
+          "y": 0.99978
         },
         {
-          "x": 0.86142,
-          "y": 0.9995
-        },
-        {
-          "x": 0.91975,
-          "y": 0.9995
-        },
-        {
-          "x": 0.95267,
-          "y": 0.9995
-        },
-        {
-          "x": 1.0,
-          "y": 1.0
+          "x": 0.98187,
+          "y": 0.99982
         }
       ]
     },
@@ -634,26 +659,104 @@
         "XSS/MITM"
       ],
       "values": [
-        279,
-        279,
-        278,
-        217,
-        317,
-        289,
-        341
+        3241,
+        3235,
+        3293,
+        2763,
+        3450,
+        3203,
+        3578
       ]
     },
     "rule_hits": {
       "labels": [
-        "NONE"
+        "R1_HIGH_PACKET_RATE_BURST",
+        "R4_SUSPICIOUS_BENIGN_ATTACK_MASS",
+        "R3_SUSPICIOUS_BENIGN_SCANNING",
+        "R2_LONG_DURATION_SUSTAINED_RATE"
       ],
       "values": [
-        2000
+        3876,
+        73,
+        69,
+        88
       ]
-    }
+    },
+    "rule_analytics": {
+      "samples": 22763,
+      "triggered_samples": 4092,
+      "applied_samples": 73,
+      "changed_predictions": 73,
+      "changed_prediction_rate": 0.003207,
+      "rule_trigger_count": 4106,
+      "per_rule_trigger_count": {
+        "R1_HIGH_PACKET_RATE_BURST": 3876,
+        "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 73,
+        "R3_SUSPICIOUS_BENIGN_SCANNING": 69,
+        "R2_LONG_DURATION_SUSTAINED_RATE": 88
+      },
+      "per_rule_applied_count": {
+        "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 73
+      },
+      "per_rule_trigger_frequency": {
+        "R1_HIGH_PACKET_RATE_BURST": 0.170276,
+        "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 0.003207,
+        "R3_SUSPICIOUS_BENIGN_SCANNING": 0.003031,
+        "R2_LONG_DURATION_SUSTAINED_RATE": 0.003866
+      },
+      "false_negatives_before": 241,
+      "false_negatives_after": 191,
+      "false_negative_attack_rescues": 50,
+      "false_negative_exact_label_corrections": 26,
+      "introduced_benign_false_positives": 23,
+      "mean_rule_strength": 0.142067,
+      "attack_class_recall_delta": [
+        {
+          "class": "Backdoor",
+          "baseline_recall": 0.996001,
+          "neuro_symbolic_recall": 0.996001,
+          "recall_delta": 0.0
+        },
+        {
+          "class": "DoS/DDoS",
+          "baseline_recall": 0.929889,
+          "neuro_symbolic_recall": 0.932657,
+          "recall_delta": 0.002768
+        },
+        {
+          "class": "Injection",
+          "baseline_recall": 0.763223,
+          "neuro_symbolic_recall": 0.764453,
+          "recall_delta": 0.00123
+        },
+        {
+          "class": "Password",
+          "baseline_recall": 0.928044,
+          "neuro_symbolic_recall": 0.928352,
+          "recall_delta": 0.000308
+        },
+        {
+          "class": "Scanning",
+          "baseline_recall": 0.95572,
+          "neuro_symbolic_recall": 0.957872,
+          "recall_delta": 0.002153
+        },
+        {
+          "class": "XSS/MITM",
+          "baseline_recall": 0.939729,
+          "neuro_symbolic_recall": 0.941267,
+          "recall_delta": 0.001538
+        }
+      ]
+    },
+    "computation_log": [
+      "Improvement curve recomputed from live baseline/neuro-symbolic predictions for windows [100, 5691, 11382, 17072, 22763].",
+      "Detection counts computed as distinct labelled attacks, baseline attack predictions, neuro-symbolic attack predictions, containment candidates, and high-confidence block recommendations.",
+      "Per-class F1 and error rates computed from live classification reports for the selected window."
+    ]
   },
   "ablation": {
-    "limit": 2000,
+    "limit": 22763,
     "labels": [
       "Accuracy",
       "Precision",
@@ -664,27 +767,27 @@
       {
         "name": "Baseline MLP",
         "metrics": [
-          0.909,
-          0.911203,
-          0.90758,
-          0.907048
+          0.922242,
+          0.923248,
+          0.922245,
+          0.921523
         ]
       },
       {
         "name": "Neuro-symbolic",
         "metrics": [
-          0.909,
-          0.911203,
-          0.90758,
-          0.907048
+          0.922374,
+          0.923418,
+          0.922377,
+          0.921693
         ]
       }
     ],
     "delta": [
-      0.0,
-      0.0,
-      0.0,
-      0.0
+      0.000132,
+      0.00017,
+      0.000132,
+      0.00017
     ],
     "notes": [
       "Baseline MLP uses raw model predictions.",
@@ -692,16 +795,16 @@
     ]
   },
   "novelty": {
-    "limit": 2000,
+    "limit": 22763,
     "alpha": 0.1,
     "uncertainty": {
-      "mean_confidence": 0.917607,
-      "mean_entropy": 0.236853,
-      "mean_margin": 0.856731,
-      "high_uncertainty_count": 400
+      "mean_confidence": 0.922702,
+      "mean_entropy": 0.221419,
+      "mean_margin": 0.864588,
+      "high_uncertainty_count": 4548
     },
     "calibration": {
-      "ece": 0.011533,
+      "ece": 0.003475,
       "bins": [
         {
           "bin": "0.0-0.1",
@@ -717,68 +820,68 @@
         },
         {
           "bin": "0.2-0.3",
-          "count": 4,
-          "confidence": 0.292965,
+          "count": 8,
+          "confidence": 0.283024,
           "accuracy": 0.25
         },
         {
           "bin": "0.3-0.4",
-          "count": 11,
-          "confidence": 0.368198,
+          "count": 77,
+          "confidence": 0.361174,
           "accuracy": 0.272727
         },
         {
           "bin": "0.4-0.5",
-          "count": 32,
-          "confidence": 0.460345,
-          "accuracy": 0.46875
+          "count": 392,
+          "confidence": 0.460651,
+          "accuracy": 0.44898
         },
         {
           "bin": "0.5-0.6",
-          "count": 73,
-          "confidence": 0.550531,
-          "accuracy": 0.561644
+          "count": 771,
+          "confidence": 0.551999,
+          "accuracy": 0.557717
         },
         {
           "bin": "0.6-0.7",
-          "count": 69,
-          "confidence": 0.654412,
-          "accuracy": 0.681159
+          "count": 833,
+          "confidence": 0.651515,
+          "accuracy": 0.665066
         },
         {
           "bin": "0.7-0.8",
-          "count": 139,
-          "confidence": 0.758412,
-          "accuracy": 0.726619
+          "count": 1521,
+          "confidence": 0.757425,
+          "accuracy": 0.761341
         },
         {
           "bin": "0.8-0.9",
-          "count": 155,
-          "confidence": 0.853992,
-          "accuracy": 0.819355
+          "count": 1507,
+          "confidence": 0.854235,
+          "accuracy": 0.862641
         },
         {
           "bin": "0.9-1.0",
-          "count": 1517,
-          "confidence": 0.983606,
-          "accuracy": 0.977587
+          "count": 17654,
+          "confidence": 0.98477,
+          "accuracy": 0.982893
         }
       ]
     },
     "conformal": {
-      "calibration_size": 400,
-      "evaluation_size": 1600,
-      "q_hat": 0.515701,
-      "probability_threshold": 0.484299,
-      "empirical_coverage": 0.901875,
-      "average_set_size": 0.981875,
+      "calibration_size": 4552,
+      "evaluation_size": 18211,
+      "q_hat": 0.43505,
+      "probability_threshold": 0.56495,
+      "empirical_coverage": 0.90319,
+      "average_set_size": 0.959036,
       "target_coverage": 0.9
     },
     "ood_drift": {
       "reference_rows": 1000,
       "ood_threshold": 1.685958,
-      "ood_count": 103,
-      "ood_rate": 0.0515,
+      "ood_count": 1199,
+      "ood_rate": 0.052673,
       "top_drift_features": [
         {
           "feature": "DST_TO_SRC_SECOND_BYTES",
@@ -790,35 +893,35 @@
         },
         {
           "feature": "CLIENT_TCP_FLAGS",
-          "mean_abs_z": 0.971119
+          "mean_abs_z": 0.967189
         },
         {
           "feature": "TCP_WIN_MAX_IN",
-          "mean_abs_z": 0.953998
+          "mean_abs_z": 0.959315
+        },
+        {
+          "feature": "NUM_PKTS_512_TO_1024_BYTES",
+          "mean_abs_z": 0.930577
         },
         {
           "feature": "SERVER_TCP_FLAGS",
-          "mean_abs_z": 0.904108
+          "mean_abs_z": 0.897451
         },
         {
           "feature": "TCP_FLAGS",
-          "mean_abs_z": 0.897412
+          "mean_abs_z": 0.885645
         },
         {
           "feature": "TCP_WIN_MAX_OUT",
-          "mean_abs_z": 0.873677
+          "mean_abs_z": 0.863481
         },
         {
-          "feature": "MIN_TTL",
-          "mean_abs_z": 0.854239
+          "feature": "LONGEST_FLOW_PKT",
+          "mean_abs_z": 0.858588
         },
         {
-          "feature": "MAX_TTL",
-          "mean_abs_z": 0.854143
-        },
-        {
-          "feature": "FLOW_DURATION_MILLISECONDS",
-          "mean_abs_z": 0.845226
+          "feature": "MAX_IP_PKT_LEN",
+          "mean_abs_z": 0.858588
         }
       ]
     },
@@ -914,6 +1017,16 @@
         "reason": "uncertain"
       },
       {
+        "idx": 52,
+        "true": "Injection",
+        "predicted": "XSS/MITM",
+        "confidence": 0.869139,
+        "entropy": 0.493033,
+        "margin": 0.799608,
+        "ood_score": 0.551054,
+        "reason": "uncertain"
+      },
+      {
         "idx": 53,
         "true": "XSS/MITM",
         "predicted": "XSS/MITM",
@@ -994,6 +1107,16 @@
         "reason": "uncertain"
       },
       {
+        "idx": 85,
+        "true": "DoS/DDoS",
+        "predicted": "DoS/DDoS",
+        "confidence": 0.880394,
+        "entropy": 0.463029,
+        "margin": 0.793133,
+        "ood_score": 0.810561,
+        "reason": "uncertain"
+      },
+      {
         "idx": 92,
         "true": "XSS/MITM",
         "predicted": "Injection",
@@ -1052,26 +1175,6 @@
         "margin": 0.268205,
         "ood_score": 0.927051,
         "reason": "uncertain"
-      },
-      {
-        "idx": 109,
-        "true": "Password",
-        "predicted": "Password",
-        "confidence": 0.550236,
-        "entropy": 0.881026,
-        "margin": 0.155428,
-        "ood_score": 0.717819,
-        "reason": "uncertain"
-      },
-      {
-        "idx": 115,
-        "true": "DoS/DDoS",
-        "predicted": "DoS/DDoS",
-        "confidence": 0.858664,
-        "entropy": 0.58639,
-        "margin": 0.790493,
-        "ood_score": 0.774238,
-        "reason": "uncertain"
       }
     ],
     "chart_ready": {
@@ -1090,51 +1193,51 @@
         },
         {
           "bin": "0.2-0.3",
-          "count": 4,
-          "confidence": 0.292965,
+          "count": 8,
+          "confidence": 0.283024,
           "accuracy": 0.25
         },
         {
           "bin": "0.3-0.4",
-          "count": 11,
-          "confidence": 0.368198,
+          "count": 77,
+          "confidence": 0.361174,
           "accuracy": 0.272727
         },
         {
           "bin": "0.4-0.5",
-          "count": 32,
-          "confidence": 0.460345,
-          "accuracy": 0.46875
+          "count": 392,
+          "confidence": 0.460651,
+          "accuracy": 0.44898
         },
         {
           "bin": "0.5-0.6",
-          "count": 73,
-          "confidence": 0.550531,
-          "accuracy": 0.561644
+          "count": 771,
+          "confidence": 0.551999,
+          "accuracy": 0.557717
         },
         {
           "bin": "0.6-0.7",
-          "count": 69,
-          "confidence": 0.654412,
-          "accuracy": 0.681159
+          "count": 833,
+          "confidence": 0.651515,
+          "accuracy": 0.665066
         },
         {
           "bin": "0.7-0.8",
-          "count": 139,
-          "confidence": 0.758412,
-          "accuracy": 0.726619
+          "count": 1521,
+          "confidence": 0.757425,
+          "accuracy": 0.761341
         },
         {
           "bin": "0.8-0.9",
-          "count": 155,
-          "confidence": 0.853992,
-          "accuracy": 0.819355
+          "count": 1507,
+          "confidence": 0.854235,
+          "accuracy": 0.862641
         },
         {
           "bin": "0.9-1.0",
-          "count": 1517,
-          "confidence": 0.983606,
-          "accuracy": 0.977587
+          "count": 17654,
+          "confidence": 0.98477,
+          "accuracy": 0.982893
         }
       ],
       "drift_features": [
@@ -1148,35 +1251,35 @@
         },
         {
           "x": "CLIENT_TCP_FLAGS",
-          "y": 0.971119
+          "y": 0.967189
         },
         {
           "x": "TCP_WIN_MAX_IN",
-          "y": 0.953998
+          "y": 0.959315
+        },
+        {
+          "x": "NUM_PKTS_512_TO_1024_BYTES",
+          "y": 0.930577
         },
         {
           "x": "SERVER_TCP_FLAGS",
-          "y": 0.904108
+          "y": 0.897451
         },
         {
           "x": "TCP_FLAGS",
-          "y": 0.897412
+          "y": 0.885645
         },
         {
           "x": "TCP_WIN_MAX_OUT",
-          "y": 0.873677
+          "y": 0.863481
         },
         {
-          "x": "MIN_TTL",
-          "y": 0.854239
+          "x": "LONGEST_FLOW_PKT",
+          "y": 0.858588
         },
         {
-          "x": "MAX_TTL",
-          "y": 0.854143
-        },
-        {
-          "x": "FLOW_DURATION_MILLISECONDS",
-          "y": 0.845226
+          "x": "MAX_IP_PKT_LEN",
+          "y": 0.858588
         }
       ],
       "uncertainty_histogram": {
@@ -1193,16 +1296,16 @@
           "0.9-1.0"
         ],
         "values": [
-          1272,
-          140,
-          185,
-          117,
-          160,
-          52,
-          47,
-          17,
-          2,
-          8
+          15011,
+          1822,
+          1681,
+          1453,
+          1590,
+          528,
+          472,
+          153,
+          35,
+          18
         ]
       }
     },
@@ -1211,6 +1314,77 @@
       "OOD scoring uses standardized distance from a deterministic reference prefix.",
       "These reliability outputs should be reported as validation evidence, not as a replacement for external testing."
     ]
+  },
+  "rule_analytics": {
+    "samples": 22763,
+    "triggered_samples": 4092,
+    "applied_samples": 73,
+    "changed_predictions": 73,
+    "changed_prediction_rate": 0.003207,
+    "rule_trigger_count": 4106,
+    "per_rule_trigger_count": {
+      "R1_HIGH_PACKET_RATE_BURST": 3876,
+      "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 73,
+      "R3_SUSPICIOUS_BENIGN_SCANNING": 69,
+      "R2_LONG_DURATION_SUSTAINED_RATE": 88
+    },
+    "per_rule_applied_count": {
+      "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 73
+    },
+    "per_rule_trigger_frequency": {
+      "R1_HIGH_PACKET_RATE_BURST": 0.170276,
+      "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 0.003207,
+      "R3_SUSPICIOUS_BENIGN_SCANNING": 0.003031,
+      "R2_LONG_DURATION_SUSTAINED_RATE": 0.003866
+    },
+    "false_negatives_before": 241,
+    "false_negatives_after": 191,
+    "false_negative_attack_rescues": 50,
+    "false_negative_exact_label_corrections": 26,
+    "introduced_benign_false_positives": 23,
+    "mean_rule_strength": 0.142067,
+    "attack_class_recall_delta": [
+      {
+        "class": "Backdoor",
+        "baseline_recall": 0.996001,
+        "neuro_symbolic_recall": 0.996001,
+        "recall_delta": 0.0
+      },
+      {
+        "class": "DoS/DDoS",
+        "baseline_recall": 0.929889,
+        "neuro_symbolic_recall": 0.932657,
+        "recall_delta": 0.002768
+      },
+      {
+        "class": "Injection",
+        "baseline_recall": 0.763223,
+        "neuro_symbolic_recall": 0.764453,
+        "recall_delta": 0.00123
+      },
+      {
+        "class": "Password",
+        "baseline_recall": 0.928044,
+        "neuro_symbolic_recall": 0.928352,
+        "recall_delta": 0.000308
+      },
+      {
+        "class": "Scanning",
+        "baseline_recall": 0.95572,
+        "neuro_symbolic_recall": 0.957872,
+        "recall_delta": 0.002153
+      },
+      {
+        "class": "XSS/MITM",
+        "baseline_recall": 0.939729,
+        "neuro_symbolic_recall": 0.941267,
+        "recall_delta": 0.001538
+      }
+    ]
+  },
+  "evidence_policy": {
+    "live_evaluation": "figures and tables are generated from backend recomputation on model predictions and test labels",
+    "paper_summary": "saved-paper-summary values are retained only under charts.paper_summary for traceability"
   },
   "figures": [
     {

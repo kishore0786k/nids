@@ -1,15 +1,12 @@
-import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split
+from src.project_paths import RESULTS_DIR, TRAIN_PATH
 
-TRAIN_PATH = os.path.join("data", "train_processed.csv")
-RESULTS_DIR = os.path.join("results")
-
-os.makedirs(RESULTS_DIR, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_train_data():
     df = pd.read_csv(TRAIN_PATH)
@@ -87,7 +84,7 @@ def main():
         plt.grid(True, linestyle=":", alpha=0.6)
         plt.legend(loc="lower right")
         plt.tight_layout()
-        plt.savefig(os.path.join(RESULTS_DIR, filename))
+        plt.savefig(RESULTS_DIR / filename)
         plt.show()
         plt.close()
 
