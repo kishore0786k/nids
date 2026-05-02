@@ -1,0 +1,31 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{amsmath,graphicx,cite,booktabs,array,url,balance}
+\title{A Trustworthy Neuro-Symbolic Intrusion Detection and Adaptive Defence Framework for NF-ToN-IoT NetFlow Traffic}
+\author{Kishore R\thanks{Replace or extend author details before submission.}}
+\begin{document}
+\maketitle
+\begin{abstract}
+\input{generated/abstract_text.tex}
+\end{abstract}
+\begin{IEEEkeywords}
+Neuro-symbolic learning, intrusion detection, IoT security, NetFlow, uncertainty, conformal prediction, OOD detection.
+\end{IEEEkeywords}
+\section{Introduction}
+IoT networks require intrusion detection systems that are accurate, interpretable, and reliable under uncertainty. This work presents a publication-oriented neuro-symbolic NIDS package with backend-generated metrics, symbolic rule traces, adaptive defence evidence, and reliability analysis.
+\section{System Model and Method}
+Each NF-ToN-IoT-V2 flow is represented by normalized NetFlow features. The MLP classifier produces class probabilities, after which symbolic rules refine labels and preserve an audit trail. Reliability evidence is generated through calibration, conformal-style prediction sets, and OOD drift scoring.
+\begin{figure}[!t]\centering\includegraphics[width=\columnwidth]{figures/figure_01_accuracy_improvement.pdf}\caption{Accuracy improvement curve.}\end{figure}
+\section{Experimental Setup}
+\begin{table}[!t]\centering\caption{Experimental setup}\resizebox{\columnwidth}{!}{\input{generated/setup_table.tex}}\end{table}
+\section{Results}
+\begin{table}[!t]\centering\caption{Comparison of existing and proposed systems}\resizebox{\columnwidth}{!}{\input{generated/comparison_table.tex}}\end{table}
+\begin{table}[!t]\centering\caption{Ablation study}\resizebox{\columnwidth}{!}{\input{generated/ablation_table.tex}}\end{table}
+\begin{table}[!t]\centering\caption{Reliability evidence}\resizebox{\columnwidth}{!}{\input{generated/reliability_table.tex}}\end{table}
+\begin{figure}[!t]\centering\includegraphics[width=\columnwidth]{figures/figure_02_per_class_f1.pdf}\caption{Per-class F1 comparison.}\end{figure}
+\begin{figure}[!t]\centering\includegraphics[width=\columnwidth]{figures/figure_05_roc_curve.pdf}\caption{Micro-average ROC curve.}\end{figure}
+\section{Conclusion}
+The proposed package combines neuro-symbolic IDS inference, trustworthy reliability outputs, and reproducible publication artifacts. Manual baseline/reference verification remains required before IEEE submission.
+\balance
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+\end{document}

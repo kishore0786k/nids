@@ -1,0 +1,627 @@
+SECRECY-ORIENTED ROBUST IRS DESIGN FOR NOMA UNDER IMPERFECT CSI AND HARDWARE IMPAIRMENTS
+Mr. M. Arul Pugazhendhi, M.E., M.B.A., (Ph.D) Department of Electronics and Communication Engineering
+IFET College of Engineering Villupuram, Tamil Nadu, India arulpugazh@yahoo.com
+Kishore R
+Department of Electronics and Communication Engineering
+IFET College of Engineering Villupuram, Tamil Nadu, India kishore0786k@gmail.com
+Abstract—Intelligent reflecting surfaces (IRSs) offer a promis-ing way to control wireless propagation, but their practical performance is often limited by imperfect channel knowledge and non-ideal hardware behavior. In realistic deployments, factors such as channel estimation errors, discrete phase shifts, phase noise, amplitude attenuation, and imperfect successive interfer-ence cancellation can collectively degrade the effectiveness of IRS-based optimization.
+In this work, we study a downlink IRS-assisted non-orthogonal multiple access (NOMA) system under these practical constraints, while also considering the presence of a passive eavesdropper. Unlike idealized models, the system explicitly captures multiple sources of uncertainty and hardware imperfections within a unified framework, enabling a more realistic evaluation of IRS-assisted secure communication.
+A secrecy-oriented robust IRS optimization framework is pro-posed, where the phase configuration is obtained using a sample-average projected coordinate ascent method. Unlike conventional designs that focus solely on maximizing the legitimate-link rate, the proposed approach explicitly incorporates a secrecy-aware objective, enabling a controlled tradeoff between throughput and information leakage.
+Simulation results demonstrate that the proposed method achieves a secrecy rate of 10.526 bps/Hz, corresponding to gains of 13.26% and 13.86% over alternating optimization and greedy alignment baselines, respectively, while incurring only marginal sum-rate reductions of 1.19% and 2.35%. Furthermore, the secrecy advantage remains consistent across varying CSI error levels, confirming the robustness of the approach.
+These results indicate that IRS optimization strategies designed with explicit secrecy objectives can provide meaningful perfor-mance gains in practical, impairment-limited wireless environ-ments.
+Index Terms—intelligent reflecting surface, NOMA, physical layer security, imperfect CSI, hardware impairments, robust optimization
+PPIntroduction
+P
+P
+ROGRAMMABLE wireless environments have evolved from a conceptual idea to a practical design paradigm, where the propagation medium itself can be actively con-trolled. Early demonstrations of software-defined metasurfaces showed that electromagnetic reflections can be dynamically adjusted, enabling environment-aware communication strate-gies [1]. This concept was later formalized in wireless sys-tems through joint active and passive beamforming, which
+positioned intelligent reflecting surfaces (IRSs) as a key opti-mization component in modern networks [2].
+As the field matured, attention shifted toward more realistic system considerations. Energy-efficient IRS designs revealed the impact of discrete phase shifts and hardware limitations on achievable performance [3]. Broader studies further ex-amined system-level challenges, including modeling accuracy, implementation tradeoffs, and integration into existing network architectures [4]. Subsequent works provided deeper insights into signal processing aspects and practical deployment issues in IRS-assisted communication [5]. Analytical frameworks were also developed to better capture propagation character-istics under realistic conditions [6], while survey efforts high-lighted scalability and standardization challenges that remain open [7].
+Despite these developments, many existing studies rely on simplified assumptions that limit their practical relevance. In real deployments, imperfect channel state information (CSI) introduces uncertainty in IRS configuration [8], while hard-ware impairments such as phase noise and non-ideal reflection characteristics degrade the effectiveness of phase control [9]. In addition, finite-resolution phase shifters introduce quanti-zation errors that restrict achievable beamforming gains [10], and discrete phase models have been shown to produce noticeable performance gaps compared to ideal continuous-phase designs [11]. Environmental factors such as path loss variations further complicate IRS optimization [12].
+A key limitation of the existing literature is that these impairments are typically studied in isolation. In practice, they coexist and interact, leading to compounded performance degradation. Designing IRS control strategies under such combined effects is therefore essential for realistic system evaluation.
+A similar gap is observed in IRS-assisted non-orthogonal multiple access (NOMA) systems. Early works primarily focused on improving spectral efficiency or reducing compu-tational complexity [13], often without considering robustness aspects [14]. Extensions to millimeter-wave scenarios high-lighted beam alignment challenges but still relied on idealized assumptions [15].
+From a security perspective, IRS-assisted transmission has
+been explored using artificial noise, secrecy rate maximization, and outage-based formulations [16]. More advanced studies considered secure NOMA transmission under simplified con-ditions [17], while robust secrecy designs typically address only partial uncertainty models [18]. Emerging architectures such as STAR-IRS further expand the design space but still lack comprehensive evaluation under multiple impair-ments [19].
+Overall, existing work rarely examines secrecy performance under a joint set of practical impairments, raising concerns about the real-world applicability of reported gains.
+This paper addresses this gap by developing a secrecy-oriented IRS-NOMA framework that explicitly incorporates multiple non-idealities. Rather than maximizing throughput under ideal assumptions, the focus is on maintaining reliable secrecy performance in realistic conditions. The main contri-butions are summarized as follows:
+A unified downlink IRS-NOMA model that jointly ac-counts for imperfect CSI, amplitude loss, phase noise, finite phase resolution, residual SIC, and an eavesdrop-per.
+A robust IRS configuration method based on projected coordinate ascent with stochastic sample averaging.
+A comparative evaluation against representative base-lines, including alternating optimization (AO), greedy alignment, random phase control, direct transmission, and quantized IRS schemes.
+A detailed analysis of the secrecy–rate tradeoff, high-lighting the impact of practical impairments on system performance.
+Unlike prior studies, this work evaluates secrecy perfor-mance under a combined impairment setting, providing a more realistic assessment of IRS-assisted secure communication.
+Related Work and Problem Positioning
+Research on intelligent reflecting surfaces (IRS) has pro-gressed rapidly, with early efforts focusing on improving received signal strength and spectral efficiency through joint active and passive beamforming [2]. This direction was later extended to energy-efficient designs, where the influence of practical constraints such as finite-resolution phase shifts be-came more evident [3]. System-level studies further examined how IRS can be integrated into future wireless networks, identifying both architectural benefits and implementation challenges [4]. In parallel, tutorial-style works provided a broader understanding of signal processing techniques and practical design considerations for IRS-assisted systems [5].
+As the focus shifted toward practical deployment, robust-ness emerged as a central challenge. Imperfect channel state information (CSI) has been shown to significantly affect the reliability of IRS phase optimization, as the design depends directly on estimated rather than exact channel conditions [8]. In addition to channel uncertainty, hardware-related impair-ments further degrade performance. Phase noise and non-ideal reflection characteristics can distort the intended signal shaping, limiting the effectiveness of IRS-based control in realistic scenarios [9].
+Another important constraint arises from the use of discrete phase shifts in low-cost IRS implementations. Finite phase resolution restricts the ability to precisely align reflected signals, leading to performance degradation compared to ideal continuous-phase designs [10]. This effect becomes more pronounced in high-precision beamforming settings, where quantization introduces a noticeable gap in achievable perfor-mance [11].
+At the same time, IRS-assisted secure communication has received increasing attention. Early studies demonstrated that IRS can improve secrecy by shaping the propagation envi-ronment to favor legitimate receivers [16]. This concept was later extended to NOMA systems, where secure transmis-sion must also account for user ordering and interference management [17]. More recent approaches have attempted to incorporate robustness into secrecy design, although most existing works consider only a limited set of impairments or simplified uncertainty models [18].
+Despite these advances, a key limitation remains. In much of the existing literature, robustness and security are treated as separate design objectives. Practical factors such as CSI errors, phase quantization, and hardware impairments are often analyzed in isolation, while secrecy-oriented designs typically assume ideal or partially simplified conditions. In real deployments, however, these effects occur simultaneously and interact in ways that can significantly alter system behavior. As a result, methods that appear effective under idealized assump-tions may not retain their advantages in realistic environments. This work addresses that gap by considering a unified setting in which secrecy performance is evaluated under com-bined practical constraints. Instead of focusing on ideal rate maximization, the objective is to examine whether a secrecy-oriented IRS design can maintain a consistent advantage when both channel uncertainty and hardware imperfections are present. The results show that such robustness is achievable, although it introduces a measurable tradeoff in nominal sum rate. This secrecy–throughput tradeoff forms the central design
+perspective of the paper.
+System Model
+Figure 1 outlines the overall workflow adopted in this study, including parameter setup, channel and impairment modeling, IRS phase design, performance evaluation, and result genera-tion. The structure is kept deliberately simple to ensure that the numerical analysis follows a coherent system-level perspective rather than a collection of isolated results.
+The process starts with the selection of system parameters, followed by channel modeling and IRS phase optimization under practical constraints.
+The framework also captures both direct and IRS-assisted propagation paths, allowing the interaction between desired signals and unintended leakage to be analyzed within a unified model. This setup provides a consistent basis for evaluating how practical impairments influence both communication per-formance and secrecy.
+where θn = ejϕn .
+The effective channel for user k is expressed as
+IU,kIU,khk = hd,k + hH  ΘhTI,(2)
+IU,k
+IU,k
+where hd,k represents the direct BS-to-user link. Similarly, the eavesdropper channel is given by
+IEIEhe = hd,e + hH ΘhTI.(3)
+IE
+IE
+This formulation emphasizes that the IRS simultaneously affects both the intended and unintended links, which makes its configuration critical for secure communication.
+B. Imperfect CSI and Hardware Impairments
+In practice, the BS does not have perfect channel knowl-edge. The estimated channel is modeled as
+csicsih^ = h + e,e ∼ CN (0, σ2 I),(4)
+csi
+csi
+csicsiwhere h^ denotes the estimated channel vector, h is the
+csi
+csi
+true channel, and σ2true channel, and σ2 represents the variance of the channelrepresents the variance of the channel
+true channel, and σ2
+true channel, and σ2
+represents the variance of the channel
+represents the variance of the channel
+Fig. 1. End-to-end workflow of the proposed IRS-assisted NOMA secrecy framework.
+We study a downlink IRS-assisted NOMA scenario where a base station (BS) serves K users in the presence of a passive eavesdropper. The system consists of both direct and IRS-reflected communication paths, as illustrated in Fig. 2.
+estimation error.
+The IRS is also subject to hardware imperfections. The implemented reflection coefficient deviates from the intended value due to amplitude loss and phase noise, modeled as
+˜˜θn = ρej(ϕn+δn),(5)
+˜
+˜
+ϕϕwhere ρ < 1 captures amplitude attenuation and δn ∼ N (0, σ2) represents phase perturbation.
+ϕ
+ϕ
+These impairments jointly degrade the effectiveness of IRS
+beamforming, motivating the need for robust design.
+C. NOMA Transmission Model
+The BS employs power-domain NOMA, where the trans-mitted signal is given by
+Fig. 2. IRS-assisted downlink NOMA system with an external eavesdropper.
+In addition to the direct transmission paths, communication is assisted by an intelligent reflecting surface (IRS) composed of N passive elements, each capable of applying a controllable phase shift to the incident signal. As a result, the received signal at each node consists of a superposition of a direct component and an IRS-reflected component.
+This dual-path propagation mechanism enables constructive
+K
+x =akPtsk,(6)
+Σ √Σ √k=1
+Σ √
+Σ √
+with ak denoting the power allocation coefficient assigned to user k.
+At the receiver, successive interference cancellation (SIC) is used to separate user signals. Owing to its non-ideal implementation, residual interference persists and is modeled using a factor εsic.
+Users are ordered according to their channel gains such that user 1 has the weakest channel and user K has the strongest.
+The resulting SINR for user k is
+jjttkksignal enhancement toward legitimate users while allowing controlled suppression of signal leakage toward the eavesdrop-
+j
+j
+t
+t
+k
+k
+γk = Σ
+akPt|hk|2
+j>kj>kjjttkksicsicj<kj<ka P |h |2 + εΣ
+j>k
+j>k
+j
+j
+t
+t
+k
+k
+sic
+sic
+j<k
+j<k
+a P |h |2 + σ2 .
+(7)
+per.
+A. Channel Model
+Let hTI ∈ CN×1 denote the BS-to-IRS channel, h
+IU,k  ∈
+The eavesdropper, which does not perform SIC, observes
+Pt|he|2
+γe =σ2.(8)
+CN×1 the IRS-to-user-k channel, and hIE ∈ CN×1 the IRS-to-eavesdropper channel. The IRS phase shift matrix is defined
+as
+Θ = diag(θ1, . . . , θN ),(1)
+D. Performance Metrics
+The achievable NOMA sum rate is defined as
+ΣΣK
+Σ
+Σ
+RNOMA =log2(1 + γk),(9)
+k=1
+while the secrecy rate is given by
+Rs = max (0, RNOMA − log2(1 + γe)) .(10)
+This definition reflects the tradeoff between maximizing throughput and limiting information leakage, which becomes more pronounced under imperfect CSI and hardware con-straints.
+C. Constraints
+The IRS phase shifts are subject to practical hardware con-straints. Each element must satisfy a unit-modulus condition with finite resolution:
+|θn| = 1,θn ∈ Qb,∀n,(13)
+where Qb denotes the discrete phase set determined by b-bit quantization.
+D. Final Optimization Problem
+Combining the objective and constraints, the overall prob-lem can be written as
+22θθddIUIUTITId,ed,eIEIETITImax  E h h + hH Θh   − η h+ hH Θh   2i
+2
+2
+θ
+θ
+d
+d
+IU
+IU
+TI
+TI
+d,e
+d,e
+IE
+IE
+TI
+TI
+IV.  Problem FormulationIV.  Problem FormulationThe goal of this work is to determine an IRS phase configuration that supports reliable and secure communication under practical conditions. In contrast to conventional designs that prioritize throughput, the focus here is on maintaining a
+IV.  Problem Formulation
+IV.  Problem Formulation
+s.t.  |θn| = 1,
+θn ∈ Qb,∀n.
+E. Discussion
+(14)
+balance between improving signal strength at legitimate users and limiting signal exposure to the eavesdropper.
+This requires jointly accounting for channel uncertainty and hardware imperfections, which influence both the desired signal and unintended leakage. As a result, the IRS design is formulated with an explicit emphasis on secrecy performance rather than purely maximizing communication rate.
+Secrecy-Aware Objective
+From the system model, the effective channels depend on the IRS phase matrix Θ. The design problem can therefore be expressed in terms of θ = [θ1, . . . , θN ]T .
+A secrecy-oriented objective is constructed by combining the legitimate link gain and the eavesdropper link penalty. Specifically, we consider
+2222ddIUIUTITId,ed,eIEIETITIJ (θ) = h + hH Θh   − η h+ hH Θh   ,(11)
+2
+2
+2
+2
+d
+d
+IU
+IU
+TI
+TI
+d,e
+d,e
+IE
+IE
+TI
+TI
+The formulated problem is non-convex due to the coupled quadratic structure of the objective and the discrete unit-modulus constraints. In addition, the expectation operator introduces further complexity, making closed-form solutions intractable.
+These challenges motivate the development of an efficient iterative algorithm that can handle quantization, channel un-certainty, and secrecy requirements in a unified framework.
+The expectation is approximated using a sample-average approach over S independent channel realizations.
+V.  Proposed Robust IRS Optimization
+and prevent the use of straightforward optimization techniques.and prevent the use of straightforward optimization techniques.The optimization problem described earlier is inherently difficult to solve due to the discrete phase constraints imposed by the IRS and the tightly coupled structure of the objective function. These factors make the problem highly non-linear
+and prevent the use of straightforward optimization techniques.
+and prevent the use of straightforward optimization techniques.
+where η ≥ 0 is a weighting factor that controls the tradeoff between rate maximization and secrecy protection.
+A larger value of η emphasizes eavesdropper suppression, while smaller values prioritize throughput.
+Robust Formulation Under Imperfect CSI
+Since the channel estimates are imperfect, the optimization must account for uncertainty. Instead of optimizing for a single channel realization, we adopt a stochastic formulation based on expectation:
+max E [J (θ)] ,(12)
+θ
+where the expectation is taken over the CSI error distribu-tion.
+This formulation ensures that the IRS configuration remains effective across multiple possible channel realizations rather than being overfitted to a single estimate.
+In addition, the presence of channel uncertainty further complicates the design, as the optimal phase configuration depends on imperfect channel estimates rather than exact values. As a result, directly solving the problem for a single channel realization can lead to unreliable performance.
+To overcome these challenges, we adopt an iterative ap-proach that combines sample-average approximation with a projectedcoordinate ascent.
+Motivation
+Conventional IRS optimization approaches, such as alter-nating optimization (AO), typically focus on maximizing the legitimate link gain while ignoring the impact on unintended receivers. These methods also rely on deterministic channel estimates, which leads to performance degradation under im-perfect CSI.
+In contrast, the proposed method explicitly incorporates both secrecy considerations and channel uncertainty. By opti-mizing a statistical objective rather than a single realization, the design becomes more resilient to estimation errors and hardware imperfections.
+Sample-Average Approximation
+The expectation in the objective function is approximated using S independent channel samples. Denoting the s-th
+ParameterValueTransmit power Pt10 dBmIRS elements N64Number of users K3Carrier frequency3.5 GHzPhase resolution3 bitsCSI error variance0.04Phase noise standard deviation0.06Amplitude loss factor0.92Residual SIC factor0.04Monte Carlo trials180ParameterValueTransmit power Pt10 dBmIRS elements N64Number of users K3Carrier frequency3.5 GHzPhase resolution3 bitsCSI error variance0.04Phase noise standard deviation0.06Amplitude loss factor0.92Residual SIC factor0.04Monte Carlo trials180realization by (h(s), h(s), h(s)), the objective becomes
+Parameter
+Value
+Transmit power Pt
+10 dBm
+IRS elements N
+64
+Number of users K
+3
+Carrier frequency
+3.5 GHz
+Phase resolution
+3 bits
+CSI error variance
+0.04
+Phase noise standard deviation
+0.06
+Amplitude loss factor
+0.92
+Residual SIC factor
+0.04
+Monte Carlo trials
+180
+Parameter
+Value
+Transmit power Pt
+10 dBm
+IRS elements N
+64
+Number of users K
+3
+Carrier frequency
+3.5 GHz
+Phase resolution
+3 bits
+CSI error variance
+0.04
+Phase noise standard deviation
+0.06
+Amplitude loss factor
+0.92
+Residual SIC factor
+0.04
+Monte Carlo trials
+180
+TABLE I
+Simulation parameters used in the evaluation
+TIIU
+SSJˆ(θ) =  1  Σ
+S
+S
+IE
+22h h(s) + h(s)H Θh(s)
+2
+2
+Sd
+— η h(s) + h(s)H Θh(s) 2 i.— η h(s) + h(s)H Θh(s) 2 i.s=1
+— η h(s) + h(s)H Θh(s) 2 i.
+— η h(s) + h(s)H Θh(s) 2 i.
+IUTI
+(15)
+d,eIETI
+This transforms the stochastic problem into a deterministic approximation that can be optimized iteratively.
+Projected Coordinate Ascent
+To handle the non-convex constraints, we adopt a coordinate-wise update strategy. At each iteration, a single IRS element θn is updated while keeping the others fixed.
+nnnnLet a(s) and b(s) denote the effective cascade coefficients corresponding to the legitimate user and eavesdropper, respec-tively. The local objective for element n can be expressed as a linear function of θn.
+n
+n
+n
+n
+The optimal phase update is then given by
+G. Convergence Behavior
+Although the problem is non-convex, the proposed coor-dinate ascent approach ensures that the objective value does not decrease at each update step. In practice, the algorithm converges within a small number of iterations, as confirmed by the convergence results presented in the simulation section. The proposed method can be interpreted as a projected gradient-like update on a surrogate objective, where each
+coordinate update maximizes a local linear approximation.
+Simulation Setup
+θ∗ = exp
+−j arg
+ΣS
+ha(s) − ηb(s)
+i!!
+.(16)
+This section describes the simulation framework used to
+nnn
+s=1
+This update aligns the phase with the weighted difference between legitimate and eavesdropper contributions.
+Quantization and Projection
+Since practical IRS elements support only discrete phase values, the updated phase is projected onto the feasible set:
+nnθn ← Qb (θ∗) ,(17)
+n
+n
+where Qb(·) denotes the quantization operator corresponding to b-bit resolution.
+Algorithm Summary
+The proposed algorithm updates the IRS configuration it-eratively by cycling through all reflecting elements. During each iteration, the phase of every element is refined using the derived update rule and then projected onto the discrete phase set through quantization.
+Through this iterative refinement, the secrecy-aware objec-tive improves progressively while ensuring that all practical constraints are satisfied.
+Complexity Analysis
+The computational cost of the proposed algorithm depends on three main factors: the number of IRS elements N , the number of channel samples S, and the number of iterations I. At each iteration, the update is performed element-wise across the IRS, leading to an overall complexity of
+O(ISN ).(18)
+This linear scaling with respect to the IRS size makes the approach computationally efficient for moderate system dimensions.
+evaluate the proposed IRS-assisted NOMA system under prac-tical impairments. All results are obtained through Monte Carlo simulations with a fixed random seed to ensure repro-ducibility.
+The wireless channels are modeled using Rician fading with distance-dependent path loss and log-normal shadowing. Spatial correlation is incorporated in the IRS links to reflect realistic propagation conditions. Imperfect CSI is introduced through additive complex Gaussian estimation errors, while hardware impairments are modeled via phase noise and am-plitude loss at the IRS elements. Residual interference due to imperfect SIC is also included in the NOMA model.
+The system parameters are summarized in Table I. Unless otherwise stated, the IRS consists of N = 64 reflecting elements, and the base station serves K = 3 users at a carrier frequency of 3.5 GHz. The IRS operates with finite-resolution phase shifts, and the system model simultaneously incorpo-rates channel estimation errors and hardware impairments.
+These settings are chosen to reflect a practical mid-scale deployment scenario, where both propagation uncertainty and non-ideal hardware effects play a significant role in determin-ing system performance.
+The evaluation considers several baseline schemes to pro-vide a comprehensive comparison. These include a literature-inspired alternating optimization (AO) method focused on maximizing the legitimate link, a greedy phase alignment strategy, and a random IRS configuration as a reference. In addition, direct-link transmission without IRS assistance and fixed quantized IRS schemes are included to reflect practical deployment scenarios.
+The presented results focus on the key performance aspects relevant to practical deployment. These include the tradeoff between secrecy and throughput, secrecy scaling with the number of IRS elements, robustness to CSI errors, incremental
+gain over greedy alignment, and statistical stability as observed through convergence and distribution-level analysis.
+Results and Discussion
+This section evaluates the performance of the proposed secrecy-oriented IRS controller under practical impairments. We first summarize key operating-point metrics in Tables II–IV, followed by detailed analysis across different scenarios.
+The results highlight a consistent trend: the proposed method prioritizes secrecy performance while maintaining competitive throughput, leading to a controlled tradeoff be-tween rate and confidentiality. Tables II–IV summarize the operating-point metrics before the figure-by-figure interpreta-tion.
+TABLE II
+Communication-metric summary at the default operating point
+results show that the proposed controller achieves consistent secrecy improvements across all cases, with gains ranging from 13.26% to 40.50%.
+The improvement over the AO and greedy baselines is particularly relevant, as these methods represent optimized and heuristic IRS configurations, respectively. The observed gains indicate that incorporating secrecy-awareness into the phase design leads to measurable benefits beyond conventional alignment strategies.
+A larger gain is observed relative to the random and no-IRS cases, which highlights the importance of intelligent IRS configuration. These results confirm that the proposed method effectively utilizes the reflecting surface not only to enhance the legitimate signal but also to limit unintended signal propagation toward the eavesdropper.
+A. Scheme-Level Tradeoff
+Benchmark Summary Across Schemes
+SchemeSNRRateSecrecyProposed23.8615.4210.53AO24.2415.609.29Greedy24.5415.799.24Random24.3415.628.58No IRS24.3915.717.491-bit IRS24.4615.818.95Fixed-Q IRS24.9616.079.09SchemeSNRRateSecrecyProposed23.8615.4210.53AO24.2415.609.29Greedy24.5415.799.24Random24.3415.628.58No IRS24.3915.717.491-bit IRS24.4615.818.95Fixed-Q IRS24.9616.079.09Fixed quantization Fixed 1-bit quantization
+Scheme
+SNR
+Rate
+Secrecy
+Proposed
+23.86
+15.42
+10.53
+AO
+24.24
+15.60
+9.29
+Greedy
+24.54
+15.79
+9.24
+Random
+24.34
+15.62
+8.58
+No IRS
+24.39
+15.71
+7.49
+1-bit IRS
+24.46
+15.81
+8.95
+Fixed-Q IRS
+24.96
+16.07
+9.09
+Scheme
+SNR
+Rate
+Secrecy
+Proposed
+23.86
+15.42
+10.53
+AO
+24.24
+15.60
+9.29
+Greedy
+24.54
+15.79
+9.24
+Random
+24.34
+15.62
+8.58
+No IRS
+24.39
+15.71
+7.49
+1-bit IRS
+24.46
+15.81
+8.95
+Fixed-Q IRS
+24.96
+16.07
+9.09
+Direct link only
+Rate gain vs greedy (%)
+Secrecy gain vs greedy (%)
+Table II presents the communication metrics at the default operating point. While the proposed approach does not maxi-mize rate, it achieves the highest secrecy performance among all schemes. This demonstrates that incorporating secrecy-awareness leads to a more balanced and robust system design.
+TABLE III
+Random phase shift
+Greedy IRS AO baseline (legit-only) Optimized (hybrid)
+2015105051015
+Percent (%)
+SchemeR.GainOut.∆Rg∆SgProposed13.681.67−2.3513.86AO12.880.00−1.170.53Greedy12.870.000.000.00Random12.950.00−1.09−7.22No IRS12.980.00−0.47−18.961-bit IRS13.110.000.13−3.14Fixed-Q IRS13.130.001.79−1.73SchemeR.GainOut.∆Rg∆SgProposed13.681.67−2.3513.86AO12.880.00−1.170.53Greedy12.870.000.000.00Random12.950.00−1.09−7.22No IRS12.980.00−0.47−18.961-bit IRS13.110.000.13−3.14Fixed-Q IRS13.130.001.79−1.73Robustness summary at the default operating point
+Scheme
+R.Gain
+Out.
+∆Rg
+∆Sg
+Proposed
+13.68
+1.67
+−2.35
+13.86
+AO
+12.88
+0.00
+−1.17
+0.53
+Greedy
+12.87
+0.00
+0.00
+0.00
+Random
+12.95
+0.00
+−1.09
+−7.22
+No IRS
+12.98
+0.00
+−0.47
+−18.96
+1-bit IRS
+13.11
+0.00
+0.13
+−3.14
+Fixed-Q IRS
+13.13
+0.00
+1.79
+−1.73
+Scheme
+R.Gain
+Out.
+∆Rg
+∆Sg
+Proposed
+13.68
+1.67
+−2.35
+13.86
+AO
+12.88
+0.00
+−1.17
+0.53
+Greedy
+12.87
+0.00
+0.00
+0.00
+Random
+12.95
+0.00
+−1.09
+−7.22
+No IRS
+12.98
+0.00
+−0.47
+−18.96
+1-bit IRS
+13.11
+0.00
+0.13
+−3.14
+Fixed-Q IRS
+13.13
+0.00
+1.79
+−1.73
+The robustness summary in Table III further highlights the impact of the proposed design under uncertainty. While baseline methods exhibit either negligible or negative secrecy gains, the proposed approach maintains a strong positive secrecy improvement (∆Sg = 13.86), even with a moderate reduction in nominal rate. This confirms that the proposed controller effectively balances robustness and secrecy, rather than optimizing only for ideal channel conditions.
+TABLE IV
+Secrecy rate comparison between the proposed method and benchmark schemes
+Baseline
+Existing Rs
+(bps/Hz)
+Proposed Rs
+(bps/Hz)
+Gain (%)
+AO
+9.294
+10.526
+13.26
+Greedy
+9.245
+10.526
+13.86
+Random
+8.578
+10.526
+22.71
+No IRS
+7.492
+10.526
+40.50
+Table IV provides a quantitative comparison between the proposed method and representative baseline schemes. The
+Fig. 3. Scheme-level rate and secrecy gains relative to greedy IRS control.
+Figure 3 together with Tables II–IV summarizes the key design tradeoff. The proposed method does not maximize nominal sum rate, as schemes such as greedy alignment and AO remain slightly higher in throughput. However, the proposed controller consistently achieves superior secrecy performance.
+At the default operating point, the secrecy improvement reaches 13.26% over the AO benchmark and 13.86% over greedy alignment. This gain is achieved with only a marginal reduction in sum rate, indicating that the IRS configuration is effectively balancing constructive signal enhancement and leakage suppression. These results support the central claim of the paper: a secrecy-aware IRS design can provide meaningful security gains without significantly compromising throughput. This behavior suggests that optimizing solely for signal strength at legitimate users is insufficient when security is a primary concern. By explicitly accounting for the eavesdropper channel, the proposed method redistributes the available spatial degrees of freedom more effectively. As a result, the reflected signal is shaped not only to enhance desired links but also to limit unintended leakage. This joint optimization leads to a more resilient performance under practical conditions. Consequently, the observed tradeoff represents a deliberate and controlled design choice rather than a performance limitation.
+B. Secrecy Scaling with IRS Size
+IRS-PLSGreedy PLSNo IRS-PLSIRS-PLSGreedy PLSNo IRS-PLSSecrecy Rate versus IRS Elements
+IRS-PLS
+Greedy PLS
+No IRS-PLS
+IRS-PLS
+Greedy PLS
+No IRS-PLS
+11. 0
+10. 5
+Secrecy rate (bps/Hz)Secrecy rate (bps/Hz)10. 0
+Secrecy rate (bps/Hz)
+Secrecy rate (bps/Hz)
+9. 5
+9. 0
+8. 5
+from 11.074 to 8.970 bps/Hz, while greedy alignment de-creases from 9.342 to 8.929 bps/Hz. This demonstrates that the proposed design is less sensitive to estimation errors.
+The underlying reason is that the optimization explicitly incorporates channel uncertainty through sample averaging, preventing overfitting to a single channel estimate. As a result, the IRS configuration remains effective even when CSI is imperfect.
+D. Incremental Gain Over Greedy Control
+8. 0
+Gain versus Greedy Baseline under CSI Error
+gaingain7. 5
+gain
+gain
+40
+7. 0
+4816326412825651235
+IRS elements
+Percentage (%)Percentage (%)30
+Percentage (%)
+Percentage (%)
+Fig. 4. Secrecy rate versus IRS element count for the proposed controller, greedy PLS, and the no-IRS baseline.
+Figure 4 illustrates the effect of IRS aperture size on secrecy performance. The proposed controller consistently out-performs both greedy PLS and the no-IRS baseline across the entire range of N . While all methods benefit from increasing IRS size, the proposed design maintains a stable secrecy level around 10.3–10.5 bps/Hz, compared to approximately 9.0–9.3 bps/Hz for greedy control and 7.5–7.6 bps/Hz without IRS assistance.
+This behavior indicates that the benefit of the proposed method is not solely due to array gain, but rather its ability to jointly optimize reflection toward legitimate users while limiting unintended signal reinforcement at the eavesdropper.
+C. Robustness to CSI Uncertainty
+IRS-Opt (Proposed)ao_litIRS-GreedyIRS-RandomIRS-Opt (Proposed)ao_litIRS-GreedyIRS-RandomSecrecy Rate versus CSI Error Variance
+IRS-Opt (Proposed)
+ao_lit
+IRS-Greedy
+IRS-Random
+IRS-Opt (Proposed)
+ao_lit
+IRS-Greedy
+IRS-Random
+13
+Secrecy rate (bps/Hz)Secrecy rate (bps/Hz)12
+Secrecy rate (bps/Hz)
+Secrecy rate (bps/Hz)
+11
+25
+20
+15
+10
+5
+0. 0000 0. 0278 0. 0556 0. 0833 0. 1111 0. 1389 0. 1667 0. 1944 0. 2222 0. 2500
+CSI error variance
+Fig. 6. Secrecy gain of the proposed controller relative to greedy IRS control under CSI uncertainty.
+Figure 6 highlights the relative advantage over greedy align-ment. The secrecy gain is highest under near-perfect CSI and gradually stabilizes as uncertainty increases. Importantly, the gain remains consistently positive across all tested conditions. This result confirms that the proposed method provides a robust improvement rather than a scenario-specific advantage. Even when channel estimates are degraded, the controller maintains a measurable secrecy benefit over conventional
+phase alignment strategies.
+E. Monte Carlo Stability
+Monte Carlo Convergence
+Average SNR95% CIAverage SNR95% CI10
+Average SNR
+95% CI
+Average SNR
+95% CI
+27
+9
+26
+Average SNR (dB)Average SNR (dB)8
+Average SNR (dB)
+Average SNR (dB)
+25
+0. 0000 0. 0278 0. 0556 0. 0833 0. 1111 0. 1389 0. 1667 0. 1944 0. 2222 0. 2500
+CSI error variance
+24
+Fig. 5. Secrecy rate versus CSI-error variance for the proposed controller and representative baselines.
+Figure 5 evaluates the impact of CSI uncertainty. As the error variance increases from 0 to 0.25, all methods experience a reduction in secrecy rate due to degraded channel knowledge. The proposed controller decreases from 12.561 to 10.164 bps/Hz, reflecting the expected performance penalty.
+However, the key observation is that the proposed method consistently maintains a higher secrecy rate than all baselines across the entire range. In comparison, the AO scheme drops
+23
+22
+050100150200250
+Monte Carlo trials
+Fig. 7. Convergence of the Monte Carlo estimate as the number of trials increases.
+Figure 7 examines the statistical reliability of the reported results. As the number of Monte Carlo trials increases from 8
+to 256, the confidence interval around the SNR estimate nar-rows significantly, and both secrecy and rate values converge to stable operating points.
+This behavior indicates that the observed performance trends are not driven by isolated channel realizations. Instead, the results reflect statistically consistent behavior under re-peated trials, reinforcing the reliability of the comparative evaluation.
+Limitations
+The presented results are based on a simulation-driven evaluation and do not include over-the-air experimentation or hardware prototyping of the IRS. In addition, the comparator schemes are implemented as representative baselines rather than exact reproductions of specific published algorithms.
+The proposed controller is designed to prioritize secrecy performance, which results in a modest reduction in nominal sum rate compared to throughput-oriented baselines. This tradeoff reflects the underlying design objective and highlights the practical balance between throughput and confidentiality in IRS-assisted systems.
+Conclusion
+This paper investigated a secrecy-oriented robust IRS design for downlink NOMA systems under imperfect CSI and prac-tical hardware impairments. A sample-average optimization framework combined with projected coordinate updates was developed to jointly enhance the legitimate signal and suppress information leakage.
+Simulation results demonstrate that the proposed method consistently improves secrecy performance over representative baselines, particularly in the presence of channel uncertainty. While this improvement is accompanied by a modest reduc-tion in nominal sum rate, the results highlight a clear and controllable tradeoff between throughput and confidentiality.
+These findings demonstrate that robustness-aware IRS de-sign is essential for translating theoretical gains into practical secure communication systems.
+Overall, the study shows that incorporating robustness and secrecy-awareness into IRS design leads to more reliable performance under realistic conditions, providing a practical direction for secure IRS-assisted wireless systems.
+References
+C. Liaskos and S. Nie and A. Tsioliaridou and A. Pitsillides and
+S. Ioannidis and I. F. Akyildiz, ”A New Wireless Communication Paradigm Through Software-Controlled Metasurfaces,” IEEE Com-munications Magazine, vol. 56, no. 9, pp. 162–169, 2018. doi: 10.1109/MCOM.2018.1700659.
+Q. Wu and R. Zhang, ”Intelligent Reflecting Surface Enhanced Wireless Network via Joint Active and Passive Beamforming,” IEEE Transactions on Wireless Communications, vol. 18, no. 11, pp. 5394–5409, 2019. doi: 10.1109/TWC.2019.2936025.
+C. Huang and A. Zappone and G. C. Alexandropoulos and M. Debbah and C. Yuen, ”Reconfigurable Intelligent Surfaces for En-ergy Efficiency in Wireless Communication,” IEEE Transactions on Wireless Communications, vol. 18, no. 8, pp. 4157–4170, 2019. doi: 10.1109/TWC.2019.2922609.
+E. Basar and M. Di Renzo and J. de Rosny and M. Debbah and M.-S. Alouini and R. Zhang, ”Wireless Communications Through Reconfig-urable Intelligent Surfaces,” IEEE Access, vol. 7, pp. 116753–116773, 2019. doi: 10.1109/ACCESS.2019.2935192.
+Q. Wu and R. Zhang, ”Towards Smart and Reconfigurable Environ-ment: Intelligent Reflecting Surface Aided Wireless Network,” IEEE Communications Magazine, vol. 58, no. 1, pp. 106–112, 2020. doi: 10.1109/MCOM.001.1900107.
+M. Di Renzo and A. Zappone and M. Debbah and M.-S. Alouini and C. Yuen and J. de Rosny and S. Tretyakov, ”Smart Radio Environments Empowered by Reconfigurable Intelligent Surfaces: How It Works, State of Research, and The Road Ahead,” IEEE Journal on Selected Areas in Communications, vol. 38, no. 11, pp. 2450–2525, 2020. doi: 10.1109/JSAC.2020.3007211.
+S. Gong and X. Lu and D. T. Hoang and D. Niyato and L. Shu and
+D. I. Kim and Y.-C. Liang, ”Toward Smart Wireless Communications via Intelligent Reflecting Surfaces: A Contemporary Survey,” IEEE Communications Surveys & Tutorials, vol. 22, no. 4, pp. 2283–2314, 2020. doi: 10.1109/COMST.2020.3004197.
+H. Shen and W. Xu and S. Gong and C. Zhao and D. W. K. Ng, ”Beam-forming Optimization for IRS-Aided Communications With Transceiver Hardware Impairments,” IEEE Transactions on Communications, vol. 69, no. 2, pp. 1214–1227, 2021. doi: 10.1109/TCOMM.2020.3033575.
+S. Zhou and W. Xu and K. Wang and M. Di Renzo and M.-S. Alouini, ”Spectral and Energy Efficiency of IRS-Assisted MISO Communication With Hardware Impairments,” IEEE Wireless Communications Letters, vol. 9, no. 9, pp. 1366–1369, 2020. doi: 10.1109/LWC.2020.2990431.
+X. Qian and M. Di Renzo and J. Liu and A. Kammoun and M.-
+S. Alouini, ”Beamforming Through Reconfigurable Intelligent Surfaces in Single-User MIMO Systems: SNR Distribution and Scaling Laws in the Presence of Channel Fading and Phase Noise,” IEEE Wire-less Communications Letters, vol. 10, no. 1, pp. 77–81, 2021. doi: 10.1109/LWC.2020.3021058.
+H. Zhang and B. Di and L. Song and Z. Han, ”Reconfigurable Intelligent Surfaces Assisted Communications With Limited Phase Shifts: How Many Phase Shifts Are Enough?,” IEEE Transactions on Vehicular Technology, vol. 69, no. 4, pp. 4498–4502, 2020. doi: 10.1109/TVT.2020.2971947.
+M. Di Renzo and F. H. Danufane and X. Xi and J. de Rosny and S. A. Tretyakov, ”Analytical Modeling of the Path-Loss for Reconfigurable Intelligent Surfaces — Anomalous Mirror or Scat-terer?,” in 2020 IEEE 21st International Workshop on Signal Pro-cessing Advances in Wireless Communications (SPAWC), 2020. doi: 10.1109/SPAWC48557.2020.9154326.
+X. Mu and Y. Liu and L. Guo and J. Lin and N. Al-Dhahir, ”Exploiting Intelligent Reflecting Surfaces in NOMA Networks: Joint Beamforming Optimization,” IEEE Transactions on Wireless Communications, vol. 19, no. 10, pp. 6884–6898, 2020. doi: 10.1109/TWC.2020.3006915.
+Z. Ding and H. V. Poor, ”A Simple Design of IRS-NOMA Transmis-sion,” IEEE Communications Letters, vol. 24, no. 5, pp. 1119–1123, 2020. doi: 10.1109/LCOMM.2020.2974196.
+J. Zuo and Y. Liu and E. Basar and O. A. Dobre, ”Intelligent Re-flecting Surface Enhanced Millimeter-Wave NOMA Systems,” IEEE Communications Letters, vol. 24, no. 11, pp. 2632–2636, 2020. doi: 10.1109/LCOMM.2020.3009158.
+J. Qiao and M.-S. Alouini, ”Secure Transmission for Intelligent Reflect-ing Surface-Assisted mmWave and Terahertz Systems,” IEEE Wireless Communications Letters, vol. 9, no. 10, pp. 1743–1747, 2020. doi: 10.1109/LWC.2020.3003400.
+W. Wang and X. Liu and J. Tang and N. Zhao and Y. Chen and
+Z. Ding and X. Wang, ”Beamforming and Jamming Optimization for IRS-Aided Secure NOMA Networks,” IEEE Transactions on Wire-less Communications, vol. 21, no. 3, pp. 1557–1569, 2022. doi: 10.1109/TWC.2021.3104856.
+Z. Zhang and J. Chen and Q. Wu and Y. Liu and L. Lv and X. Su, ”Securing NOMA Networks by Exploiting Intelligent Reflecting Surface,” IEEE Transactions on Communications, vol. 70, no. 2, pp. 1096–1111, 2022. doi: 10.1109/TCOMM.2021.3126636.
+H. Jia and L. Ma and S. Valaee, ”STAR-RIS Enabled Downlink Secure NOMA Network Under Imperfect CSI of Eavesdroppers,” IEEE Communications Letters, vol. 27, no. 3, pp. 802–806, 2023. doi: 10.1109/LCOMM.2023.3233980.
+W. Tang and J. Y. Dai and M. Z. Chen and K.-K. Wong and X. Li and X. Zhao and S. Jin and Q. Cheng and T. J. Cui, ”MIMO Transmission Through Reconfigurable Intelligent Surface: System De-sign, Analysis, and Implementation,” IEEE Journal on Selected Ar-eas in Communications, vol. 38, no. 11, pp. 2683–2699, 2020. doi: 10.1109/JSAC.2020.3007055.
