@@ -1,0 +1,287 @@
+# Neuro-Symbolic Network Intrusion Detection System (NIDS)
+
+## 1. Introduction
+
+This project is a **Neuro-Symbolic Network Intrusion Detection System (NIDS)** designed to detect, explain, and respond to cyber-attacks using a combination of machine learning and rule-based reasoning.
+
+Unlike traditional systems that rely only on machine learning or only on rules, this project integrates both approaches into a unified framework that is:
+
+* Accurate (through neural models)
+* Interpretable (through symbolic rules)
+* Actionable (through defense recommendations)
+* Visual (through an interactive dashboard)
+
+---
+
+## 2. Problem Statement
+
+Modern intrusion detection systems suffer from three major limitations:
+
+1. **Black-box nature** of ML models → hard to trust
+2. **Static rule systems** → poor adaptability
+3. **Lack of response mechanisms** → detection without action
+
+This project solves all three by introducing a neuro-symbolic hybrid system.
+
+---
+
+## 3. System Overview
+
+The system works in the following pipeline:
+
+1. Input network flow data
+2. Neural model predicts traffic class
+3. Symbolic rules refine or validate prediction
+4. Explanation is generated
+5. Defense action is recommended
+6. Results are visualized in a dashboard
+
+---
+
+## 4. Core Components
+
+### 4.1 Input Layer
+
+The system uses **NetFlow-style features**, such as:
+
+* Packet rate
+* Byte rate
+* Flow duration
+* TTL variance
+* Statistical features of traffic
+
+These features represent summarized network activity.
+
+---
+
+### 4.2 Neural Model (MLP)
+
+A trained **Multi-Layer Perceptron (MLP)** performs classification.
+
+It outputs:
+
+* Predicted label (e.g., Benign, DoS)
+* Probability distribution over classes
+
+Strength:
+
+* Learns complex patterns from data
+
+Limitation:
+
+* Hard to interpret
+
+---
+
+### 4.3 Symbolic Rule Engine
+
+This is the **key innovation layer**.
+
+Rules analyze flow features such as:
+
+* High packet rate → possible DoS
+* Long duration + sustained traffic → slow attack
+* High anomaly score → suspicious behavior
+
+Rules can:
+
+* Confirm the neural prediction
+* Override the prediction
+
+Each rule provides:
+
+* Rule ID
+* Reason
+* Confidence
+
+---
+
+### 4.4 Neuro-Symbolic Fusion
+
+Final decision is based on:
+
+* Neural prediction
+* Rule output
+* Confidence thresholds
+
+This creates a hybrid decision-making system.
+
+---
+
+### 4.5 Explanation Module
+
+For each prediction, the system outputs:
+
+* Initial prediction
+* Final prediction
+* Rules triggered
+* Feature-based explanation
+
+This improves transparency.
+
+---
+
+### 4.6 Defense Engine
+
+Maps attack type to action:
+
+* DoS → rate limiting
+* Scanning → throttling
+* Injection → blocking
+* Unknown → containment
+
+This transforms detection into **response planning**.
+
+---
+
+### 4.7 Backend API
+
+Implemented using Flask.
+
+Provides endpoints:
+
+* /api/overview
+* /api/charts
+* /api/research
+* /api/defense
+
+Handles:
+
+* Prediction
+* Metrics
+* Data aggregation
+
+---
+
+### 4.8 Frontend Dashboard
+
+Interactive UI displaying:
+
+* Accuracy metrics
+* ROC curves
+* Confusion matrix
+* Rule traces
+* Defense actions
+* 3D architecture visualization
+
+---
+
+### 4.9 Experiment Pipeline
+
+Includes:
+
+* Baseline comparison (RF, MLP)
+* Neuro-symbolic evaluation
+* Per-class metrics
+* Ablation studies
+
+---
+
+## 5. Workflow
+
+1. Load dataset
+2. Split into train/test
+3. Train model
+4. Predict test samples
+5. Apply symbolic rules
+6. Compare results
+7. Visualize output
+
+---
+
+## 6. Your Contribution
+
+### 6.1 Neuro-Symbolic Integration
+
+You combined ML with rule-based reasoning.
+
+### 6.2 Explainable IDS
+
+System provides rule-based explanations.
+
+### 6.3 Defense-Oriented Design
+
+Detection leads to action.
+
+### 6.4 Full-Stack Implementation
+
+Includes backend, frontend, and research pipeline.
+
+### 6.5 Publication Pipeline
+
+Generates figures, tables, and summaries.
+
+---
+
+## 7. Novelty
+
+### 7.1 Hybrid Intelligence
+
+Combines learning + reasoning.
+
+### 7.2 Explainability
+
+Shows WHY a decision was made.
+
+### 7.3 Actionable Output
+
+Provides defense strategies.
+
+### 7.4 End-to-End System
+
+From data → detection → explanation → response → visualization
+
+---
+
+## 8. Evaluation Metrics
+
+* Accuracy
+* Precision
+* Recall
+* F1-score
+* Confusion matrix
+
+Special focus:
+
+* Attack detection
+* False negatives
+
+---
+
+## 9. Strengths
+
+* Interpretable
+* Modular
+* Scalable
+* Research-oriented
+
+---
+
+## 10. Limitations
+
+* Depends on dataset quality
+* Rule design requires tuning
+* Neural model may underperform RF
+
+---
+
+## 11. Future Improvements
+
+* Multi-dataset evaluation
+* Advanced rule learning
+* Real-time deployment
+* GNN-based detection
+
+---
+
+## 12. Conclusion
+
+This project demonstrates a powerful approach to intrusion detection by combining neural networks with symbolic reasoning.
+
+It goes beyond traditional IDS systems by:
+
+* improving interpretability
+* enabling defense actions
+* providing research-grade evaluation
+
+This makes it a strong candidate for publication with further validation.

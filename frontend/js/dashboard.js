@@ -477,7 +477,8 @@ async function postJson(url, payload) {
   return res.json();
 }
 
-async function analyseFlow(index = $("#flow-index").value) {
+async function analyseFlow(index) {
+  index = typeof index !== "undefined" ? index : Number($("#flow-index")?.value || 0);
   const result = await postJson("/api/defense/analyse", { idx: index });
   const flow = result.flow;
   state.flow = flow;
@@ -666,18 +667,62 @@ function setupControls() {
     state.backend = await getJson("/api/backend/status");
     renderBackendStatus();
   });
-  $("#sample-window").addEventListener("input", event => $("#sample-window-value").textContent = event.target.value);
-  $("#sample-window").addEventListener("change", async event => {
-    [state.research, state.chartData, state.novelty, state.backend] = await Promise.all([
-      getJson(`/api/research?limit=${event.target.value}`),
-      getJson(`/api/charts?limit=${event.target.value}`),
-      getJson(`/api/novelty?limit=${event.target.value}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
-      getJson("/api/backend/status"),
-    ]);
-    renderOverview();
-    renderAnalysis();
-    renderNovelty();
-  });
+  // Interactive slider: update display immediately and debounce server recompute
+  const sampleEl = $("#sample-window");
+  if (sampleEl) {
+    let debounceTimer = null;
+    sampleEl.addEventListener("input", event => {
+      const val = event.target.value;
+      $("#sample-window-value").textContent = val;
+      // Schedule recompute (debounced) so charts update while sliding
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          setStatus(`Recomputing charts for window ${val}...`);
+          const [research, chartData, novelty, backend] = await Promise.all([
+            getJson(`/api/research?limit=${val}`),
+            getJson(`/api/charts?limit=${val}`),
+            getJson(`/api/novelty?limit=${val}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
+            getJson("/api/backend/status"),
+          ]);
+          state.research = research;
+          state.chartData = chartData;
+          state.novelty = novelty;
+          state.backend = backend;
+          renderOverview();
+          renderAnalysis();
+          renderNovelty();
+          setStatus(`${research.limit.toLocaleString()} flows computed`);
+        } catch (err) {
+          showActionError(err);
+        }
+      }, DEBOUNCE_MS);
+    });
+    // Keep a 'change' listener as a fallback for commit (immediate, no debounce)
+    sampleEl.addEventListener("change", async event => {
+      const val = event.target.value;
+      try {
+        setStatus(`Recomputing charts for window ${val}...`);
+        const [research, chartData, novelty, backend] = await Promise.all([
+          getJson(`/api/research?limit=${val}`),
+          getJson(`/api/charts?limit=${val}`),
+          getJson(`/api/novelty?limit=${val}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
+          getJson("/api/backend/status"),
+        ]);
+        state.research = research;
+        state.chartData = chartData;
+        state.novelty = novelty;
+        state.backend = backend;
+        renderOverview();
+        renderAnalysis();
+        renderNovelty();
+        setStatus(`${research.limit.toLocaleString()} flows computed`);
+      } catch (err) {
+        showActionError(err);
+      }
+    });
+  }
+
   bindAsyncClick("#btn-refresh-novelty", "Refreshing reliability evidence", async () => {
     const limit = $("#sample-window")?.value || 750;
     const alpha = $("#novelty-alpha")?.value || 0.10;
