@@ -21,3 +21,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# Runtime run summaries
+runs/*.json

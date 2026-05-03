@@ -1381,86 +1381,19 @@ def run_all(
     fusion_mode=SYMBOLIC_FUSION_MODE,
     seed=DEFAULT_SEED,
 ) -> dict[str, Any]:
-    """Single-click recomputation entry point for the dashboard."""
-    load_resources()
-    requested = {"limit": limit, "alpha": alpha, "beta": beta, "flow_idx": flow_idx, "fusion_mode": fusion_mode, "seed": seed}
-    config = evaluation_config(limit, flow_idx, alpha, beta, fusion_mode, seed)
-    novelty_alpha = min(0.40, max(0.01, config.alpha))
+    """Compatibility wrapper around the typed Run All orchestrator."""
+    from backend.pipeline import run_all_pipeline
 
-    LOGGER.info("Run-all requested with %s", requested)
-    started = perf_counter()
-    _clear_caches()
-    overview = overview_data()
-    research = analyse_window(
-        window_size=config.window_size,
-        flow_index=config.flow_index,
-        alpha=config.alpha,
-        beta=config.beta,
-        fusion_mode=config.fusion_mode,
-        seed=config.seed,
+    return run_all_pipeline(
+        {
+            "limit": limit,
+            "alpha": alpha,
+            "beta": beta,
+            "flow_idx": flow_idx,
+            "fusion_mode": fusion_mode,
+            "seed": seed,
+        }
     )
-    charts = chart_data(
-        window_size=config.window_size,
-        flow_index=config.flow_index,
-        alpha=config.alpha,
-        beta=config.beta,
-        fusion_mode=config.fusion_mode,
-        seed=config.seed,
-    )
-    novelty = novelty_data(config.window_size, novelty_alpha, flow_index=config.flow_index, seed=config.seed)
-    defense = analyse_defense(
-        config.flow_index,
-        alpha=config.alpha,
-        beta=config.beta,
-        fusion_mode=config.fusion_mode,
-        seed=config.seed,
-    )
-    backend = backend_status()
-    elapsed_ms = (perf_counter() - started) * 1000.0
-
-    debug = {
-        "input_parameters": {
-            **requested,
-            **_config_public(config),
-            "novelty_alpha": json_number(novelty_alpha, 4),
-        },
-        "api_output_summary": {
-            "overview_samples": overview["total_samples"],
-            "research_window": research["limit"],
-            "chart_window": charts["limit"],
-            "rule_trigger_count": research["rule_analytics"]["rule_trigger_count"],
-            "prediction_change_count": research["rule_analytics"]["prediction_change_count"],
-            "delta_accuracy": research["rule_analytics"]["delta_accuracy"],
-            "delta_f1": research["rule_analytics"]["delta_f1"],
-            "novelty_verdict": research["novelty_proof"]["verdict"],
-            "elapsed_ms": json_number(elapsed_ms, 3),
-        },
-        "datasets_changed": [
-            "overview",
-            "research_metrics",
-            "charts",
-            "defense_analysis",
-            "novelty_panel",
-            "backend_status",
-        ],
-        "resource_signatures": {
-            "train": _file_signature(TRAIN_PATH),
-            "test": _file_signature(TEST_PATH),
-            "model": _file_signature(MODEL_PATH),
-        },
-    }
-    LOGGER.info("Run-all output summary: %s", debug["api_output_summary"])
-    return {
-        "ok": True,
-        "message": "Full pipeline recomputed from model, data, and live rule evaluation.",
-        "overview": overview,
-        "research": research,
-        "charts": charts,
-        "novelty": novelty,
-        "defense": defense,
-        "backend": backend,
-        "debug": debug,
-    }
 
 
 def overview_data():

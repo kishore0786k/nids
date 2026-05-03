@@ -17,6 +17,8 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
 from backend import nids_engine as engine
+from backend import run_manager
+from backend.pipeline import LAST_RUN_PATH, PipelineStageError
 from src.project_paths import FRONTEND_DIR, PROJECT_ROOT
 
 
@@ -98,12 +100,28 @@ def handle_value_error(exc):
 def handle_unexpected_error(exc):
     if isinstance(exc, HTTPException):
         return jsonify({"error": exc.name, "message": exc.description}), exc.code
+    if isinstance(exc, PipelineStageError):
+        app.logger.exception("Pipeline stage failed: %s", exc.stage)
+        return jsonify({"error": "pipeline_stage_failed", "message": str(exc), "stage": exc.stage}), 500
+    app.logger.exception("Unhandled backend error")
     return jsonify({"error": "internal_error", "message": str(exc)}), 500
 
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/health")
+@app.route("/api/health")
+def api_health():
+    return jsonify({
+        "ok": True,
+        "service": "neuro-symbolic-nids",
+        "status": "healthy",
+        "last_run_persisted": LAST_RUN_PATH.exists(),
+        "last_run_path": str(LAST_RUN_PATH),
+    })
 
 
 @app.route("/single-flow")
@@ -146,14 +164,43 @@ def api_novelty():
 @app.route("/api/run-all", methods=["GET", "POST"])
 def api_run_all():
     params = _eval_params(750)
-    return jsonify(engine.run_all(
-        limit=params["window_size"],
-        alpha=params["alpha"],
-        beta=params["beta"],
-        flow_idx=params["flow_index"],
-        fusion_mode=params["fusion_mode"],
-        seed=params["seed"],
-    ))
+    payload = {
+        "window_size": params["window_size"],
+        "alpha": params["alpha"],
+        "beta": params["beta"],
+        "flow_index": params["flow_index"],
+        "fusion_mode": params["fusion_mode"],
+        "seed": params["seed"],
+    }
+    if str(_raw_param("sync", "false")).lower() in {"1", "true", "yes"}:
+        return jsonify(engine.run_all(
+            limit=params["window_size"],
+            alpha=params["alpha"],
+            beta=params["beta"],
+            flow_idx=params["flow_index"],
+            fusion_mode=params["fusion_mode"],
+            seed=params["seed"],
+        ))
+    job = run_manager.start_run(payload)
+    return jsonify(job), 202
+
+
+@app.route("/run/status")
+@app.route("/api/run/status")
+def api_latest_run_status():
+    status = run_manager.latest_status()
+    if status is None:
+        return jsonify({"error": "not_found", "message": "No Run All job has been started."}), 404
+    return jsonify(status)
+
+
+@app.route("/run/status/<job_id>")
+@app.route("/api/run/status/<job_id>")
+def api_run_status(job_id):
+    status = run_manager.get_status(job_id)
+    if status is None:
+        return jsonify({"error": "not_found", "message": f"Unknown Run All job: {job_id}"}), 404
+    return jsonify(status)
 
 
 @app.route("/api/export-charts", methods=["POST"])

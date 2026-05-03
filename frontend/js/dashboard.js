@@ -12,6 +12,8 @@ const state = {
   architectureScene: null,
   windowRequestId: 0,
   lastRunDebug: null,
+  runJobId: null,
+  runStatus: null,
 };
 
 const DEBOUNCE_MS = 350;
@@ -45,9 +47,24 @@ function setStatus(message) {
   if (el) el.textContent = message;
 }
 
+function showToast(title, message) {
+  const stack = $("#toast-stack");
+  if (!stack) {
+    window.alert(`${title}: ${message}`);
+    return;
+  }
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.setAttribute("role", "alert");
+  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+  stack.appendChild(toast);
+  setTimeout(() => toast.remove(), 7200);
+}
+
 function showActionError(error) {
   console.error(error);
   setStatus(`Action failed: ${error.message || error}`);
+  showToast("Action failed", error.message || String(error));
 }
 
 function bindAsyncClick(selector, statusText, handler) {
@@ -77,8 +94,21 @@ function signedPct(value, digits = 2) {
 
 async function getJson(url) {
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${url} returned ${res.status}`);
+  if (!res.ok) throw new Error(await responseErrorMessage(res, url));
   return res.json();
+}
+
+async function responseErrorMessage(res, url) {
+  try {
+    const payload = await res.json();
+    return payload.message || payload.error || `${url} returned ${res.status}`;
+  } catch (error) {
+    return `${url} returned ${res.status}`;
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function currentLimit() {
@@ -664,8 +694,43 @@ async function postJson(url, payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
   });
-  if (!res.ok) throw new Error(`${url} returned ${res.status}`);
+  if (!res.ok) throw new Error(await responseErrorMessage(res, url));
   return res.json();
+}
+
+function renderRunProgress(status) {
+  const progress = $("#run-progress");
+  const fill = $("#run-progress-fill");
+  const pctEl = $("#run-progress-percent");
+  const stageEl = $("#run-progress-stage");
+  const list = $("#run-stage-list");
+  if (!progress || !status) return;
+  progress.hidden = false;
+  const percent = Number(status.progress || 0);
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(percent)}%`;
+  if (stageEl) stageEl.textContent = status.current_stage || status.state || "running";
+  if (list) {
+    list.innerHTML = (status.stages || []).map(stage => (
+      `<span class="run-stage ${stage.status || "pending"}">${stage.name}</span>`
+    )).join("");
+  }
+}
+
+async function waitForRunJob(jobId) {
+  let status = await getJson(`/api/run/status/${jobId}`);
+  renderRunProgress(status);
+  while (status.state === "queued" || status.state === "running") {
+    await sleep(900);
+    status = await getJson(`/api/run/status/${jobId}`);
+    renderRunProgress(status);
+  }
+  if (status.state === "failed") {
+    const message = status.error?.message || "Run All failed.";
+    const stage = status.error?.stage ? `${status.error.stage}: ` : "";
+    throw new Error(`${stage}${message}`);
+  }
+  return status.result;
 }
 
 async function analyseFlow(index) {
@@ -1192,9 +1257,21 @@ async function runAll() {
   const button = $("#btn-run-all");
   const feedback = $("#run-all-feedback");
   button.classList.add("loading");
-  feedback.textContent = "Recomputing...";
+  button.disabled = true;
+  feedback.textContent = "Starting pipeline...";
+  renderRunProgress({
+    state: "queued",
+    progress: 0,
+    current_stage: "queued",
+    stages: ["capture", "preprocess", "feature-extract", "predict", "log", "visualize"].map(name => ({ name, status: "pending" })),
+  });
   try {
-    const result = await postJson("/api/run-all", currentParams({ limit: currentLimit(), flow_idx: currentFlowIndex() }));
+    const job = await postJson("/api/run-all", currentParams({ limit: currentLimit(), flow_idx: currentFlowIndex() }));
+    state.runJobId = job.job_id;
+    state.runStatus = job;
+    renderRunProgress(job);
+    feedback.textContent = `Running ${job.current_stage || "pipeline"}...`;
+    const result = await waitForRunJob(job.job_id);
     state.overview = result.overview;
     state.research = result.research;
     state.chartData = result.charts;
@@ -1213,6 +1290,7 @@ async function runAll() {
     console.info("Run All debug", result.debug);
   } finally {
     button.classList.remove("loading");
+    button.disabled = false;
   }
 }
 

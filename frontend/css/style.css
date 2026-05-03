@@ -159,6 +159,75 @@ button { cursor: pointer; }
   font-size: 12px;
   text-align: right;
 }
+.run-progress {
+  flex: 1 1 360px;
+  min-width: 280px;
+  max-width: 520px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,.025);
+}
+.run-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 7px;
+}
+.run-progress-meta strong { color: var(--cyan); }
+.run-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+}
+.run-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  transition: width .2s ease;
+}
+.run-stage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.run-stage {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.run-stage.running { color: var(--blue); border-color: rgba(75,163,255,.5); }
+.run-stage.success { color: var(--green); border-color: rgba(74,222,128,.45); }
+.run-stage.failed { color: var(--red); border-color: rgba(255,91,110,.55); }
+.toast-stack {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 50;
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 28px));
+}
+.toast {
+  border: 1px solid rgba(255,91,110,.45);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: rgba(24, 13, 16, .96);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.toast strong { display: block; margin-bottom: 4px; color: var(--red); }
+.toast span { display: block; color: var(--muted); line-height: 1.4; }
 
 .view { display: none; animation: enter .18s ease-out; }
 .view.active { display: block; }
@@ -634,6 +703,11 @@ td.risk-benign { color: var(--green); font-weight: 750; }
     flex: 1 0 100%;
     min-width: 0;
     text-align: left;
+  }
+  .run-progress {
+    flex: 1 0 100%;
+    min-width: 0;
+    max-width: 100%;
   }
   .topbar-actions .btn {
     flex: 1 0 100%;

@@ -54,6 +54,14 @@
             <input id="fusion-mode" type="checkbox" checked />
           </div>
           <span class="run-feedback" id="run-all-feedback" aria-live="polite">Ready</span>
+          <div class="run-progress" id="run-progress" hidden>
+            <div class="run-progress-meta">
+              <span id="run-progress-stage">Idle</span>
+              <strong id="run-progress-percent">0%</strong>
+            </div>
+            <div class="run-progress-track"><span id="run-progress-fill"></span></div>
+            <div class="run-stage-list" id="run-stage-list"></div>
+          </div>
           <button class="btn ghost" id="btn-export-json">Export JSON</button>
           <button class="btn ghost" id="btn-export-all-charts">Export Charts</button>
           <button class="btn primary" id="btn-refresh">Refresh Analysis</button>
@@ -401,6 +409,7 @@
       </section>
     </main>
   </div>
+  <div class="toast-stack" id="toast-stack" aria-live="assertive"></div>
 
   <!-- dashboard.js: use Flask url_for when templated; otherwise fallback injected below -->
   <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260503-advanced1" data-dashboard-src="true"></script>
