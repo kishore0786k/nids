@@ -8,6 +8,7 @@
   <!-- Prefer Flask-rendered path but mark for fallback if template not processed -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260503-advanced1" data-static-fallback="css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
 </head>
 <body>
@@ -152,6 +153,40 @@
             <span id="sample-window-value">750</span>
           </div>
         </div>
+
+        <section class="panel chart-explorer-panel">
+          <div class="panel-head">
+            <div><h3>Configurable Run Chart</h3><p>Live chart controls for the current Run All window.</p></div>
+            <div class="control-row">
+              <button class="icon-btn" id="btn-chart-export-png">PNG</button>
+              <button class="icon-btn" id="btn-chart-export-svg">SVG</button>
+              <button class="icon-btn" id="btn-chart-export-csv">CSV</button>
+            </div>
+          </div>
+          <div class="chart-control-grid">
+            <label>Type<select id="chart-type-selector">
+              <option value="line">Line</option>
+              <option value="bar">Bar</option>
+              <option value="area">Area</option>
+              <option value="scatter">Scatter</option>
+              <option value="heatmap">Heatmap</option>
+              <option value="confusion-matrix">Confusion Matrix</option>
+              <option value="roc">ROC</option>
+              <option value="pr">PR Curve</option>
+              <option value="feature-importance">Feature Importance</option>
+              <option value="traffic-over-time">Traffic Over Time</option>
+              <option value="attack-class-distribution">Attack-Class Distribution</option>
+            </select></label>
+            <label>X Axis<select id="chart-x-selector"></select></label>
+            <label>Y Axis<select id="chart-y-selector"></select></label>
+            <label>Attack Class<select id="chart-class-filter"></select></label>
+            <label>Start<input id="chart-range-start" type="number" min="0" value="0" /></label>
+            <label>End<input id="chart-range-end" type="number" min="0" value="750" /></label>
+            <label>Top N<input id="chart-top-n" type="range" min="3" max="30" step="1" value="10" /></label>
+            <strong id="chart-top-n-value">10</strong>
+          </div>
+          <div class="plotly-box" id="chart-explorer"></div>
+        </section>
 
         <div class="charts-board">
           <section class="panel">

@@ -349,6 +349,44 @@ button { cursor: pointer; }
 .section-header { margin: 6px 0 18px; }
 .section-header h3 { font-size: 28px; margin-top: 6px; }
 .chart-box { height: 330px; position: relative; }
+.plotly-box { height: 460px; width: 100%; }
+.chart-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: end;
+}
+.chart-control-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.chart-control-grid select,
+.chart-control-grid input[type="number"] {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: rgba(255,255,255,.035);
+}
+.chart-control-grid input[type="range"] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+#chart-top-n-value {
+  align-self: end;
+  padding: 9px 10px;
+  color: var(--cyan);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(25,211,197,.055);
+}
 .chart-fallback {
   height: 100%;
   display: grid;
@@ -473,6 +511,56 @@ td.risk-benign { color: var(--green); font-weight: 750; }
 }
 .evidence-item span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
 .evidence-item strong { font-size: 13px; word-break: break-word; }
+.evidence-card {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,.025);
+  overflow: hidden;
+}
+.evidence-card summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: var(--text);
+  font-weight: 750;
+}
+.evidence-card-body {
+  padding: 0 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.evidence-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.evidence-kv {
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: rgba(0,0,0,.12);
+}
+.evidence-kv span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 5px;
+}
+.evidence-kv strong {
+  font-size: 12px;
+  word-break: break-word;
+}
+.evidence-mini-table {
+  width: 100%;
+  min-width: 0;
+}
+.evidence-mini-table th,
+.evidence-mini-table td {
+  padding: 8px 9px;
+  font-size: 12px;
+}
 
 .architecture-stage {
   display: grid;

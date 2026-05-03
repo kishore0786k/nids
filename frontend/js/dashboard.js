@@ -14,9 +14,12 @@ const state = {
   lastRunDebug: null,
   runJobId: null,
   runStatus: null,
+  chartConfig: null,
+  chartExportRows: [],
 };
 
 const DEBOUNCE_MS = 350;
+const CHART_CONFIG_KEY = "nids-chart-config-v1";
 
 const colors = {
   blue: "#4ba3ff",
@@ -155,6 +158,34 @@ function currentParams(overrides = {}) {
 
 function queryString(params = currentParams()) {
   return new URLSearchParams(params).toString();
+}
+
+function defaultChartConfig() {
+  return {
+    type: "line",
+    x: "sequence",
+    y: "confidence",
+    attackClass: "all",
+    rangeStart: 0,
+    rangeEnd: currentLimit(),
+    topN: 10,
+  };
+}
+
+function loadChartConfig() {
+  if (state.chartConfig) return state.chartConfig;
+  try {
+    state.chartConfig = { ...defaultChartConfig(), ...JSON.parse(localStorage.getItem(CHART_CONFIG_KEY) || "{}") };
+  } catch (error) {
+    state.chartConfig = defaultChartConfig();
+  }
+  return state.chartConfig;
+}
+
+function saveChartConfig(patch = {}) {
+  state.chartConfig = { ...defaultChartConfig(), ...loadChartConfig(), ...patch };
+  localStorage.setItem(CHART_CONFIG_KEY, JSON.stringify(state.chartConfig));
+  return state.chartConfig;
 }
 
 async function refreshWindowedDashboard() {
@@ -530,8 +561,157 @@ function renderAnalysis() {
 
   renderMatrix(r.classes, r.confusion_matrix);
   renderAuditTable(r.rows);
+  renderChartExplorer();
   renderImpactProof();
   renderArchitectureTelemetry();
+}
+
+function selectOptions(el, values, selected) {
+  if (!el) return;
+  const unique = Array.from(new Set(values.filter(Boolean)));
+  el.innerHTML = unique.map(value => `<option value="${value}">${value}</option>`).join("");
+  if (unique.includes(selected)) el.value = selected;
+}
+
+function explorerPayload() {
+  return state.chartData?.chart_explorer || {
+    rows: [],
+    available_columns: [],
+    numeric_columns: [],
+    attack_classes: [],
+    default_x: "sequence",
+    default_y: "confidence",
+    traffic_over_time: [],
+    feature_importance: [],
+  };
+}
+
+function syncChartControls() {
+  const explorer = explorerPayload();
+  const cfg = loadChartConfig();
+  const rows = explorer.rows || [];
+  const maxSequence = Math.max(0, rows.length ? Math.max(...rows.map(row => Number(row.sequence || 0))) : currentLimit());
+  cfg.x = (explorer.available_columns || []).includes(cfg.x) ? cfg.x : explorer.default_x;
+  cfg.y = (explorer.numeric_columns || []).includes(cfg.y) ? cfg.y : explorer.default_y;
+  const classOptions = ["all", ...(explorer.attack_classes || [])];
+  cfg.attackClass = classOptions.includes(cfg.attackClass) ? cfg.attackClass : "all";
+  cfg.rangeStart = Math.max(0, Math.min(Number(cfg.rangeStart || 0), maxSequence));
+  cfg.rangeEnd = Math.max(cfg.rangeStart, Math.min(Number(cfg.rangeEnd || maxSequence), maxSequence));
+  saveChartConfig(cfg);
+
+  const typeEl = $("#chart-type-selector");
+  if (typeEl) typeEl.value = cfg.type;
+  selectOptions($("#chart-x-selector"), explorer.available_columns || ["sequence"], cfg.x);
+  selectOptions($("#chart-y-selector"), explorer.numeric_columns || ["confidence"], cfg.y);
+  selectOptions($("#chart-class-filter"), classOptions, cfg.attackClass);
+  const startEl = $("#chart-range-start");
+  const endEl = $("#chart-range-end");
+  if (startEl) {
+    startEl.max = maxSequence;
+    startEl.value = cfg.rangeStart;
+  }
+  if (endEl) {
+    endEl.max = maxSequence;
+    endEl.value = cfg.rangeEnd;
+  }
+  const topEl = $("#chart-top-n");
+  if (topEl) topEl.value = cfg.topN;
+  const topValue = $("#chart-top-n-value");
+  if (topValue) topValue.textContent = cfg.topN;
+}
+
+function filteredExplorerRows(sourceRows) {
+  const cfg = loadChartConfig();
+  return (sourceRows || []).filter(row => {
+    const sequence = Number(row.sequence || 0);
+    if (sequence < Number(cfg.rangeStart || 0) || sequence > Number(cfg.rangeEnd || Number.MAX_SAFE_INTEGER)) return false;
+    if (cfg.attackClass && cfg.attackClass !== "all" && row.attack_class !== cfg.attackClass) return false;
+    return true;
+  });
+}
+
+function plotLayout(title, xTitle, yTitle) {
+  return {
+    title: { text: title, font: { size: 15, color: colors.muted } },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: colors.muted, family: "Inter, system-ui, sans-serif" },
+    margin: { l: 54, r: 22, t: 48, b: 54 },
+    xaxis: { title: xTitle, gridcolor: "rgba(255,255,255,.06)", zerolinecolor: "rgba(255,255,255,.12)" },
+    yaxis: { title: yTitle, gridcolor: "rgba(255,255,255,.06)", zerolinecolor: "rgba(255,255,255,.12)" },
+  };
+}
+
+function classMatrix(rows, xColumn, yColumn, topN) {
+  const xValues = Array.from(new Set(rows.map(row => String(row[xColumn] ?? "n/a")))).slice(0, topN);
+  const yValues = Array.from(new Set(rows.map(row => String(row[yColumn] ?? "n/a")))).slice(0, topN);
+  const z = yValues.map(y => xValues.map(x => rows.filter(row => String(row[xColumn] ?? "n/a") === x && String(row[yColumn] ?? "n/a") === y).length));
+  return { xValues, yValues, z };
+}
+
+function renderChartExplorer() {
+  const target = $("#chart-explorer");
+  if (!target || !window.Plotly) return;
+  syncChartControls();
+  const explorer = explorerPayload();
+  const cfg = loadChartConfig();
+  const topN = Number(cfg.topN || 10);
+  const rows = filteredExplorerRows(explorer.rows || []);
+  let traces = [];
+  let layout = plotLayout("Current run", cfg.x, cfg.y);
+
+  if (["line", "area", "scatter", "bar"].includes(cfg.type)) {
+    const x = rows.map(row => row[cfg.x]);
+    const y = rows.map(row => row[cfg.y]);
+    const mode = cfg.type === "scatter" ? "markers" : "lines+markers";
+    const trace = { x, y, type: cfg.type === "bar" ? "bar" : "scatter", mode, name: cfg.y, marker: { color: colors.cyan } };
+    if (cfg.type === "area") trace.fill = "tozeroy";
+    traces = [trace];
+    state.chartExportRows = rows.map(row => ({ [cfg.x]: row[cfg.x], [cfg.y]: row[cfg.y], attack_class: row.attack_class }));
+  } else if (cfg.type === "heatmap") {
+    const matrix = classMatrix(rows, cfg.x || "true", cfg.y || "proposed", topN);
+    traces = [{ type: "heatmap", x: matrix.xValues, y: matrix.yValues, z: matrix.z, colorscale: "YlGnBu" }];
+    layout = plotLayout("Filtered heatmap", cfg.x, cfg.y);
+    state.chartExportRows = matrix.yValues.flatMap((y, rowIndex) => matrix.xValues.map((x, colIndex) => ({ x, y, count: matrix.z[rowIndex][colIndex] })));
+  } else if (cfg.type === "confusion-matrix") {
+    traces = [{ type: "heatmap", x: state.research.classes, y: state.research.classes, z: state.research.confusion_matrix, colorscale: "YlOrRd" }];
+    layout = plotLayout("Confusion matrix", "Predicted", "True");
+    state.chartExportRows = state.research.classes.flatMap((y, rowIndex) => state.research.classes.map((x, colIndex) => ({ true: y, predicted: x, count: state.research.confusion_matrix[rowIndex][colIndex] })));
+  } else if (cfg.type === "roc") {
+    const roc = state.chartData.roc_curve || {};
+    traces = [
+      { type: "scatter", mode: "lines", name: "Baseline", x: (roc.baseline?.points || []).map(p => p.x), y: (roc.baseline?.points || []).map(p => p.y), line: { color: colors.amber, dash: "dash" } },
+      { type: "scatter", mode: "lines", name: "Proposed", x: (roc.proposed?.points || roc.points || []).map(p => p.x), y: (roc.proposed?.points || roc.points || []).map(p => p.y), line: { color: colors.green } },
+    ];
+    layout = plotLayout("ROC curve", "False positive rate", "True positive rate");
+    state.chartExportRows = (roc.proposed?.points || roc.points || []).map(point => ({ fpr: point.x, tpr: point.y }));
+  } else if (cfg.type === "pr") {
+    const pr = state.chartData.pr_curve || {};
+    traces = [
+      { type: "scatter", mode: "lines", name: "Baseline", x: (pr.baseline?.points || []).map(p => p.x), y: (pr.baseline?.points || []).map(p => p.y), line: { color: colors.amber, dash: "dash" } },
+      { type: "scatter", mode: "lines", name: "Proposed", x: (pr.proposed?.points || pr.points || []).map(p => p.x), y: (pr.proposed?.points || pr.points || []).map(p => p.y), line: { color: colors.green } },
+    ];
+    layout = plotLayout("Precision-recall curve", "Recall", "Precision");
+    state.chartExportRows = (pr.proposed?.points || pr.points || []).map(point => ({ recall: point.x, precision: point.y }));
+  } else if (cfg.type === "feature-importance") {
+    const importance = (explorer.feature_importance || []).slice(0, topN);
+    traces = [{ type: "bar", orientation: "h", x: importance.map(row => row.score), y: importance.map(row => row.feature), marker: { color: colors.violet } }];
+    layout = plotLayout("Feature importance", "Score", "Feature");
+    state.chartExportRows = importance;
+  } else if (cfg.type === "traffic-over-time") {
+    const traffic = filteredExplorerRows(explorer.traffic_over_time || []);
+    const yColumn = traffic.some(row => Number(row.bytes_total || 0) > 0) ? "bytes_total" : "confidence";
+    traces = [{ type: "scatter", mode: "lines+markers", x: traffic.map(row => row.sequence), y: traffic.map(row => row[yColumn]), name: yColumn, line: { color: colors.blue } }];
+    layout = plotLayout("Traffic over time", "Sequence", yColumn);
+    state.chartExportRows = traffic;
+  } else if (cfg.type === "attack-class-distribution") {
+    const distribution = state.chartData.class_distribution || state.research.class_distribution;
+    traces = [{ type: "bar", x: distribution.labels, y: distribution.proposed_values || distribution.values, marker: { color: colors.red } }];
+    layout = plotLayout("Attack-class distribution", "Class", "Flows");
+    state.chartExportRows = distribution.labels.map((label, index) => ({ class: label, count: (distribution.proposed_values || distribution.values)[index] }));
+  }
+
+  Plotly.react(target, traces, layout, { responsive: true, displaylogo: false });
 }
 
 function renderBackendStatus() {
@@ -745,6 +925,30 @@ async function analyseFlow(index) {
   return flow;
 }
 
+function evidenceValue(value) {
+  if (value === null || typeof value === "undefined" || value === "") return "--";
+  if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : Number(value).toFixed(4);
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function evidenceKvGrid(items) {
+  return `<div class="evidence-kv-grid">${items.map(([key, value]) => `
+    <div class="evidence-kv"><span>${key}</span><strong>${evidenceValue(value)}</strong></div>
+  `).join("")}</div>`;
+}
+
+function evidenceTable(headers, rows) {
+  if (!rows.length) return `<div class="evidence-kv"><span>Status</span><strong>No matched records</strong></div>`;
+  return `<table class="evidence-mini-table"><thead><tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(row => `<tr>${row.map(value => `<td>${evidenceValue(value)}</td>`).join("")}</tr>`).join("")}
+  </tbody></table>`;
+}
+
+function evidenceCard(title, body, open = false) {
+  return `<details class="evidence-card" ${open ? "open" : ""}><summary>${title}</summary><div class="evidence-card-body">${body}</div></details>`;
+}
+
 function renderDefense(flow, incident) {
   const isAttack = flow.risk === "attack";
   const confidence = Number(flow.confidence || 0);
@@ -790,20 +994,29 @@ function renderDefense(flow, incident) {
     },
   });
 
-  const rules = flow.fired_rules.map(rule => `${rule.rule_id}: ${rule.reason}`).join(" | ");
-  const topFeatures = Object.entries(flow.features).slice(0, 14);
+  const evidence = flow.evidence || {};
+  const history = evidence.historical_frequency || {};
+  const flowContext = evidence.flow_context || {};
+  const featureRows = (evidence.top_features || []).map(row => [row.feature, row.value, row.score, row.method]);
+  const ruleRows = (evidence.matched_rules || []).map(rule => [rule.signature, rule.applied ? "applied" : "matched", rule.strength, rule.reason]);
+  const featureSnapshot = Object.entries(flow.features || {}).slice(0, 24);
   $("#evidence-grid").innerHTML = [
-    ["Flow index", flow.index],
-    ["True label", flow.true_label],
-    ["Existing prediction", flow.base_pred],
-    ["Proposed prediction", flow.ns_label],
-    ["Changed prediction", flow.changed_prediction ? "yes" : "no"],
-    ["Rule strength", Number(flow.rule_strength || 0).toFixed(3)],
-    ["Explanation", flow.explanation || ""],
-    ["Robust model", flow.robust_pred || "Unavailable"],
-    ["Symbolic trace", rules],
-    ...topFeatures,
-  ].map(([key, value]) => `<div class="evidence-item"><span>${key}</span><strong>${value}</strong></div>`).join("");
+    evidenceCard("Prediction Evidence", evidenceKvGrid([
+      ["Flow index", flow.index],
+      ["True label", flow.true_label],
+      ["Existing prediction", flow.base_pred],
+      ["Proposed prediction", flow.ns_label],
+      ["Changed prediction", flow.changed_prediction ? "yes" : "no"],
+      ["Confidence", evidence.confidence ?? flow.confidence],
+      ["Calibrated probability", evidence.calibrated_probability],
+      ["Class frequency", `${history.count || 0}/${history.total_rows || 0} (${pct(history.rate || 0, 2)})`],
+      ["Robust model", flow.robust_pred || "Unavailable"],
+    ]), true),
+    evidenceCard("Packet And Flow Context", evidenceKvGrid(Object.entries(flowContext)), true),
+    evidenceCard("Top Feature Contributions", evidenceTable(["Feature", "Value", "Score", "Method"], featureRows), true),
+    evidenceCard("Matched Rules And Signatures", evidenceTable(["Signature", "State", "Strength", "Reason"], ruleRows), false),
+    evidenceCard("Raw Feature Snapshot", evidenceKvGrid(featureSnapshot), false),
+  ].join("");
   renderArchitectureTelemetry();
 }
 
@@ -1119,7 +1332,57 @@ function exportMatrixCsv() {
   download("confusion_matrix.csv", rowsToCsv(rows), "text/csv");
 }
 
+function setupChartExplorerControls() {
+  const bindings = [
+    ["#chart-type-selector", "type", "change"],
+    ["#chart-x-selector", "x", "change"],
+    ["#chart-y-selector", "y", "change"],
+    ["#chart-class-filter", "attackClass", "change"],
+    ["#chart-range-start", "rangeStart", "input"],
+    ["#chart-range-end", "rangeEnd", "input"],
+    ["#chart-top-n", "topN", "input"],
+  ];
+  bindings.forEach(([selector, key, eventName]) => {
+    const el = $(selector);
+    if (!el) return;
+    el.addEventListener(eventName, () => {
+      const value = el.type === "number" || el.type === "range" ? Number(el.value) : el.value;
+      saveChartConfig({ [key]: value });
+      if (key === "topN") {
+        const topValue = $("#chart-top-n-value");
+        if (topValue) topValue.textContent = value;
+      }
+      renderChartExplorer();
+    });
+  });
+  $("#btn-chart-export-png")?.addEventListener("click", () => exportChartExplorerImage("png"));
+  $("#btn-chart-export-svg")?.addEventListener("click", () => exportChartExplorerImage("svg"));
+  $("#btn-chart-export-csv")?.addEventListener("click", () => exportChartExplorerCsv());
+}
+
+function exportChartExplorerImage(format) {
+  const target = $("#chart-explorer");
+  if (!target || !window.Plotly) return;
+  Plotly.downloadImage(target, {
+    format,
+    filename: `nids_${loadChartConfig().type}`,
+    width: 1400,
+    height: 850,
+  });
+}
+
+function exportChartExplorerCsv() {
+  const rows = state.chartExportRows || [];
+  if (!rows.length) throw new Error("No configurable chart rows are available to export.");
+  const headers = Array.from(rows.reduce((keys, row) => {
+    Object.keys(row).forEach(key => keys.add(key));
+    return keys;
+  }, new Set()));
+  download("configurable_chart.csv", rowsToCsv([headers, ...rows.map(row => headers.map(key => row[key]))]), "text/csv");
+}
+
 function setupControls() {
+  setupChartExplorerControls();
   bindAsyncClick("#btn-refresh", "Refreshing dashboard", loadDashboard);
   bindAsyncClick("#btn-run-all", "Running full pipeline", runAll);
   bindAsyncClick("#btn-backend-refresh", "Refreshing backend status", async () => {

@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import auc, classification_report, confusion_matrix, recall_score, roc_curve
+from sklearn.metrics import auc, average_precision_score, classification_report, confusion_matrix, precision_recall_curve, recall_score, roc_curve
 from sklearn.preprocessing import label_binarize
 
 from src.neuro_symbolic import apply_symbolic_rules, apply_symbolic_rules_batch, build_symbolic_context
@@ -444,6 +444,180 @@ def defense_action(label, confidence, fired_rules):
     return {"level": "Critical" if confidence >= 0.85 else "Elevated", "action": action, "playbook": playbook}
 
 
+def _normalised_column(name: str) -> str:
+    return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+
+def _sample_value(sample: pd.Series, candidates: list[str]) -> Any:
+    wanted = [_normalised_column(candidate) for candidate in candidates]
+    for column in sample.index:
+        normalised = _normalised_column(str(column))
+        if any(candidate == normalised or candidate in normalised for candidate in wanted):
+            return sample[column]
+    return None
+
+
+def _json_feature_value(value: Any) -> Any:
+    numeric = json_number(value, 6)
+    return numeric if numeric is not None else (None if value is None else str(value))
+
+
+def _flow_context(sample: pd.Series, index: int) -> dict[str, Any]:
+    src_ip = _sample_value(sample, ["src_ip", "source_ip", "ipv4_src_addr", "srcaddr"])
+    dst_ip = _sample_value(sample, ["dst_ip", "destination_ip", "ipv4_dst_addr", "dstaddr"])
+    src_port = _sample_value(sample, ["src_port", "sport", "l4_src_port"])
+    dst_port = _sample_value(sample, ["dst_port", "dport", "l4_dst_port"])
+    protocol = _sample_value(sample, ["protocol", "proto", "l4_proto"])
+    timestamp = _sample_value(sample, ["timestamp", "time", "ts", "flow_start"])
+    in_bytes = _sample_value(sample, ["in_bytes", "src_bytes", "bytes_in"])
+    out_bytes = _sample_value(sample, ["out_bytes", "dst_bytes", "bytes_out"])
+    total_bytes = _sample_value(sample, ["bytes", "tot_bytes", "total_bytes"])
+    in_packets = _sample_value(sample, ["in_pkts", "src_pkts", "packets_in"])
+    out_packets = _sample_value(sample, ["out_pkts", "dst_pkts", "packets_out"])
+    total_packets = _sample_value(sample, ["packets", "tot_pkts", "total_packets"])
+
+    byte_values = [json_number(value, 6) for value in (in_bytes, out_bytes) if json_number(value, 6) is not None]
+    packet_values = [json_number(value, 6) for value in (in_packets, out_packets) if json_number(value, 6) is not None]
+    return {
+        "row_index": int(index),
+        "timestamp": _json_feature_value(timestamp),
+        "src_ip": _json_feature_value(src_ip),
+        "dst_ip": _json_feature_value(dst_ip),
+        "src_port": _json_feature_value(src_port),
+        "dst_port": _json_feature_value(dst_port),
+        "protocol": _json_feature_value(protocol),
+        "bytes_in": _json_feature_value(in_bytes),
+        "bytes_out": _json_feature_value(out_bytes),
+        "bytes_total": _json_feature_value(total_bytes if total_bytes is not None else sum(byte_values) if byte_values else None),
+        "packets_in": _json_feature_value(in_packets),
+        "packets_out": _json_feature_value(out_packets),
+        "packets_total": _json_feature_value(total_packets if total_packets is not None else sum(packet_values) if packet_values else None),
+    }
+
+
+def _historical_frequency(label: str) -> dict[str, Any]:
+    counts = _y_test.astype(str).value_counts()
+    count = int(counts.get(label, 0))
+    total = int(len(_y_test))
+    attack_counts = counts[[idx for idx in counts.index if is_attack(idx)]]
+    return {
+        "class": label,
+        "count": count,
+        "rate": json_number(count / max(1, total), 6),
+        "total_rows": total,
+        "attack_rows": int(attack_counts.sum()),
+        "source": str(TEST_PATH),
+    }
+
+
+def _global_feature_importance(top_k: int = 20) -> list[dict[str, Any]]:
+    load_resources()
+    feature_names = [str(column) for column in _X_test.columns]
+    scores = None
+    method = None
+    if hasattr(_base_model, "feature_importances_"):
+        scores = np.asarray(getattr(_base_model, "feature_importances_"), dtype=float)
+        method = "model_feature_importances"
+    elif hasattr(_base_model, "coef_"):
+        coef = np.asarray(getattr(_base_model, "coef_"), dtype=float)
+        scores = np.mean(np.abs(coef), axis=0) if coef.ndim > 1 else np.abs(coef)
+        method = "model_coefficients"
+    if scores is None or len(scores) != len(feature_names):
+        scores = _X_test.select_dtypes(include=[np.number]).std(axis=0).reindex(_X_test.columns).fillna(0).to_numpy()
+        method = "feature_variance_fallback"
+    rows = [
+        {"feature": feature, "score": json_number(score, 8), "method": method}
+        for feature, score in zip(feature_names, scores)
+    ]
+    return sorted(rows, key=lambda row: abs(float(row["score"] or 0)), reverse=True)[:top_k]
+
+
+def _shap_attributions(sample_frame: pd.DataFrame, class_index: int) -> tuple[str, np.ndarray] | None:
+    if not hasattr(_base_model, "estimators_"):
+        return None
+    try:
+        import shap
+
+        explainer = shap.TreeExplainer(_base_model)
+        shap_values = explainer.shap_values(sample_frame)
+        if isinstance(shap_values, list):
+            values = np.asarray(shap_values[class_index][0], dtype=float)
+        else:
+            arr = np.asarray(shap_values, dtype=float)
+            values = arr[0, :, class_index] if arr.ndim == 3 else arr[0]
+        return "shap", values
+    except Exception as exc:
+        LOGGER.info("SHAP attribution unavailable, falling back to permutation-style scores: %s", exc)
+        return None
+
+
+def _permutation_attributions(sample_frame: pd.DataFrame, class_index: int, base_prob: float) -> tuple[str, np.ndarray]:
+    reference = _X_test.median(numeric_only=True).reindex(_X_test.columns).fillna(0)
+    scores = []
+    for column in _X_test.columns:
+        perturbed = sample_frame.copy()
+        perturbed[column] = reference.get(column, 0)
+        try:
+            next_prob = float(_base_model.predict_proba(_model_input(_base_model, perturbed))[0][class_index])
+            scores.append(base_prob - next_prob)
+        except Exception as exc:
+            LOGGER.info("Permutation attribution failed for %s: %s", column, exc)
+            scores.append(0.0)
+    return "permutation_occlusion", np.asarray(scores, dtype=float)
+
+
+def _prediction_evidence(
+    sample: pd.Series,
+    sample_frame: pd.DataFrame,
+    index: int,
+    label: str,
+    base_probs: np.ndarray,
+    fired_rules: list[dict[str, Any]],
+    config: EvalConfig,
+    top_k: int = 8,
+) -> dict[str, Any]:
+    class_index = _classes.index(label) if label in _classes else int(np.argmax(base_probs))
+    confidence = float(np.max(base_probs))
+    fused = _fused_probabilities(np.asarray([base_probs]), np.asarray([label]), [fired_rules], config)[0]
+    calibrated_probability = float(fused[class_index]) if class_index < len(fused) else confidence
+    attribution = _shap_attributions(sample_frame, class_index)
+    if attribution is None:
+        attribution = _permutation_attributions(sample_frame, class_index, float(base_probs[class_index]))
+    method, scores = attribution
+    if not np.any(np.abs(scores)) and hasattr(_base_model, "feature_importances_"):
+        method = "model_feature_importances"
+        scores = np.asarray(getattr(_base_model, "feature_importances_"), dtype=float)
+
+    rows = []
+    for feature, score in zip(_X_test.columns, scores):
+        rows.append({
+            "feature": str(feature),
+            "value": _json_feature_value(sample[feature]),
+            "score": json_number(score, 8),
+            "method": method,
+        })
+    matched_rules = [
+        {
+            "rule_id": str(rule.get("rule_id")),
+            "signature": str(rule.get("rule_id")),
+            "reason": str(rule.get("reason") or ""),
+            "applied": bool(rule.get("applied")),
+            "strength": json_number(rule.get("strength", rule.get("score", 0)), 6),
+        }
+        for rule in fired_rules
+        if rule.get("rule_id") != "NONE"
+    ]
+    return {
+        "top_features": sorted(rows, key=lambda row: abs(float(row["score"] or 0)), reverse=True)[:top_k],
+        "flow_context": _flow_context(sample, index),
+        "confidence": json_number(confidence, 6),
+        "calibrated_probability": json_number(calibrated_probability, 6),
+        "matched_rules": matched_rules,
+        "matched_rule_count": len(matched_rules),
+        "historical_frequency": _historical_frequency(label),
+    }
+
+
 def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSION_MODE, seed=DEFAULT_SEED):
     load_resources()
     idx = _coerce_int(index, default=0, minimum=0, maximum=len(_X_test) - 1)
@@ -490,6 +664,7 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
         except Exception as exc:
             warnings.warn(f"Robust model prediction failed for row {idx}: {exc}", RuntimeWarning)
             robust_pred = None
+    evidence = _prediction_evidence(sample, sample_frame, idx, ns_label, base_probs, fired_rules, config)
 
     return {
         "index": idx,
@@ -510,6 +685,7 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
             "labels": _classes,
             "values": [json_number(p, 6) for p in base_probs],
         },
+        "evidence": evidence,
         "features": {col: json_number(sample[col], 6) for col in _X_test.columns},
     }
 
@@ -961,6 +1137,76 @@ def _log_chart_step(logs: list[str], message: str) -> None:
     LOGGER.info(message)
 
 
+def _chart_explorer_payload(evaluated: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+    subset_X = evaluated["subset_X"]
+    indices = evaluated["indices"]
+    true_arr = evaluated["true_arr"]
+    base_preds = evaluated["base_preds"]
+    ns_preds = evaluated["ns_preds"]
+    confidence = evaluated["confidence"]
+    strengths = evaluated["strengths"]
+    row_limit = min(len(subset_X), 5000)
+    rows: list[dict[str, Any]] = []
+    for pos in range(row_limit):
+        feature_values = {
+            str(column): _json_feature_value(subset_X.iloc[pos][column])
+            for column in subset_X.columns
+        }
+        flow = _flow_context(subset_X.iloc[pos], int(indices[pos]))
+        rows.append({
+            "sequence": pos,
+            "idx": int(indices[pos]),
+            "true": true_arr[pos],
+            "baseline": str(base_preds[pos]),
+            "proposed": str(ns_preds[pos]),
+            "attack_class": str(ns_preds[pos]),
+            "risk": "attack" if is_attack(ns_preds[pos]) else "benign",
+            "confidence": json_number(confidence[pos], 6),
+            "rule_strength": json_number(float(strengths[pos]), 6),
+            "timestamp": flow.get("timestamp"),
+            "bytes_total": flow.get("bytes_total"),
+            "packets_total": flow.get("packets_total"),
+            **feature_values,
+        })
+
+    sample_row = rows[0] if rows else {}
+    numeric_columns = [
+        column
+        for column, value in sample_row.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+    categorical_columns = [
+        column
+        for column, value in sample_row.items()
+        if isinstance(value, str) or column in {"true", "baseline", "proposed", "attack_class", "risk"}
+    ]
+    traffic_rows = [
+        {
+            "sequence": row["sequence"],
+            "timestamp": row.get("timestamp"),
+            "bytes_total": row.get("bytes_total") or 0,
+            "packets_total": row.get("packets_total") or 0,
+            "confidence": row.get("confidence") or 0,
+            "attack_class": row.get("attack_class"),
+        }
+        for row in rows
+    ]
+    return {
+        "rows": rows,
+        "row_count": len(rows),
+        "row_limit_applied": row_limit < len(subset_X),
+        "available_columns": list(sample_row.keys()),
+        "numeric_columns": numeric_columns,
+        "categorical_columns": categorical_columns,
+        "attack_classes": analysis.get("classes", []),
+        "default_x": "sequence",
+        "default_y": "confidence" if "confidence" in numeric_columns else (numeric_columns[0] if numeric_columns else "idx"),
+        "range_column": "sequence",
+        "traffic_over_time": traffic_rows,
+        "feature_importance": _global_feature_importance(50),
+    }
+
+
 def chart_data(
     limit=2000,
     window_size=None,
@@ -1041,12 +1287,28 @@ def chart_data(
             "points": [{"x": json_number(x, 5), "y": json_number(y, 5)} for x, y in zip(fpr[::step], tpr[::step])],
         }
 
+    def pr_payload(score_matrix: np.ndarray) -> dict[str, Any]:
+        precision, recall, _ = precision_recall_curve(y_bin.ravel(), score_matrix.ravel())
+        avg_precision = float(average_precision_score(y_bin.ravel(), score_matrix.ravel()))
+        step = max(1, len(precision) // 80)
+        return {
+            "average_precision": json_number(avg_precision, 6),
+            "points": [
+                {"x": json_number(x, 5), "y": json_number(y, 5)}
+                for x, y in zip(recall[::step], precision[::step])
+            ],
+        }
+
     try:
         roc_points = roc_payload(probabilities)
         proposed_roc_points = roc_payload(proposed_probabilities)
+        pr_points = pr_payload(probabilities)
+        proposed_pr_points = pr_payload(proposed_probabilities)
     except Exception:
         roc_points = {"auc": None, "points": []}
         proposed_roc_points = {"auc": None, "points": []}
+        pr_points = {"average_precision": None, "points": []}
+        proposed_pr_points = {"average_precision": None, "points": []}
 
     hist, edges = np.histogram(confidence, bins=np.linspace(0, 1, 11))
     true_attack = np.asarray([is_attack(label) for label in true_arr], dtype=bool)
@@ -1104,6 +1366,8 @@ def chart_data(
                 "difference_chart",
                 "attack_recall_gain",
                 "roc_curve",
+                "pr_curve",
+                "chart_explorer",
             ],
         },
         "metric_comparison": {
@@ -1166,7 +1430,14 @@ def chart_data(
             "auc": proposed_roc_points["auc"],
             "points": proposed_roc_points["points"],
         },
+        "pr_curve": {
+            "baseline": pr_points,
+            "proposed": proposed_pr_points,
+            "average_precision": proposed_pr_points["average_precision"],
+            "points": proposed_pr_points["points"],
+        },
         "class_distribution": analysis["class_distribution"],
+        "chart_explorer": _chart_explorer_payload(evaluated, analysis),
         "rule_hits": analysis["rule_hits"],
         "difference_chart": {
             "labels": ["Accuracy", "Precision", "Recall", "F1"],
