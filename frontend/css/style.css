@@ -366,14 +366,32 @@ button { cursor: pointer; }
   text-transform: uppercase;
   letter-spacing: .04em;
 }
-.chart-control-grid select,
-.chart-control-grid input[type="number"] {
+.chart-control-grid select {
   width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  padding: 10px 38px 10px 12px;
+  border-radius: 10px;
+
   color: var(--text);
-  background: rgba(255,255,255,.035);
+  border: 1px solid rgba(75,163,255,0.25);
+
+  /* 🌌 Glass effect */
+  background: linear-gradient(
+      180deg,
+      rgba(255,255,255,0.06),
+      rgba(255,255,255,0.02)
+    ),
+    rgba(16, 23, 32, 0.75);
+
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  /* remove default UI */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  /* glow transition */
+  transition: all 0.25s ease;
 }
 .chart-control-grid input[type="range"] {
   width: 100%;

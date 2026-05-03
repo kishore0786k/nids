@@ -1,0 +1,55 @@
+{
+  "created_at": "2026-05-03T16:19:12",
+  "metadata": {
+    "window": 1700,
+    "alpha": 0.65,
+    "flow_index": 0
+  },
+  "saved": [
+    {
+      "name": "rulesChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\01_rulesChart.png",
+      "bytes": 14535
+    },
+    {
+      "name": "analysisComparisonChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\02_analysisComparisonChart.png",
+      "bytes": 40890
+    },
+    {
+      "name": "perClassChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\03_perClassChart.png",
+      "bytes": 37463
+    },
+    {
+      "name": "confidenceChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\04_confidenceChart.png",
+      "bytes": 19395
+    },
+    {
+      "name": "detectionChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\05_detectionChart.png",
+      "bytes": 21523
+    },
+    {
+      "name": "errorRateChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\06_errorRateChart.png",
+      "bytes": 16978
+    },
+    {
+      "name": "rocChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\07_rocChart.png",
+      "bytes": 33180
+    },
+    {
+      "name": "differenceChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\08_differenceChart.png",
+      "bytes": 14455
+    },
+    {
+      "name": "attackRecallGainChart",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\results\\dashboard_chart_exports\\charts_20260503_161910_547635\\09_attackRecallGainChart.png",
+      "bytes": 33009
+    }
+  ]
+}

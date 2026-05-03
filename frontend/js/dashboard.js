@@ -279,13 +279,36 @@ function renderOverview() {
   const proposedAccuracy = r.metrics.proposed[0] || 0;
   const lift = proposedAccuracy - existingAccuracy;
 
-  $("#headline-score").textContent = `${pct(proposedAccuracy)} backend-computed accuracy with neuro-symbolic explanation`;
-  $("#kpi-lift").textContent = `+${(lift * 100).toFixed(2)} pts`;
-  $("#kpi-f1").textContent = pct(r.metrics.proposed[3]);
-  $("#kpi-classes").textContent = o.num_classes;
-  $("#kpi-samples").textContent = Number(o.total_samples || 0).toLocaleString();
-  $("#flow-index").max = o.max_index;
-  state.maxIndex = o.max_index;
+  if (!o) {
+    console.error("🚨 'o' is NULL:", o);
+    return;
+}
+
+if (!r || !r.metrics || !r.metrics.proposed) {
+    console.error("🚨 'r.metrics' missing:", r);
+    return;
+}
+
+$("#headline-score").textContent =
+    `${pct(proposedAccuracy || 0)} backend-computed accuracy with neuro-symbolic explanation`;
+
+$("#kpi-lift").textContent =
+    `+${((lift || 0) * 100).toFixed(2)} pts`;
+
+$("#kpi-f1").textContent =
+    pct(r.metrics.proposed[3] || 0);
+
+$("#kpi-classes").textContent =
+    o.num_classes ?? 0;
+
+$("#kpi-samples").textContent =
+    Number(o.total_samples || 0).toLocaleString();
+
+$("#flow-index").max =
+    o.max_index || 0;
+
+state.maxIndex =
+    o.max_index || 0;
 
   makeChart("comparisonChart", "chart-comparison", {
     type: "bar",
