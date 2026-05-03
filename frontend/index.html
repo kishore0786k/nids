@@ -6,8 +6,9 @@
   <title>Neuro-Symbolic NIDS Research Dashboard</title>
   <meta name="description" content="Interactive research dashboard for neuro-symbolic network intrusion detection and adaptive cyber defence." />
   <!-- Prefer Flask-rendered path but mark for fallback if template not processed -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260502-runall3" data-static-fallback="css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260503-advanced1" data-static-fallback="css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -45,6 +46,7 @@
         <div class="topbar-actions">
           <span class="run-feedback" id="run-all-feedback" aria-live="polite">Ready</span>
           <button class="btn ghost" id="btn-export-json">Export JSON</button>
+          <button class="btn ghost" id="btn-export-all-charts">Export Charts</button>
           <button class="btn primary" id="btn-refresh">Refresh Analysis</button>
           <button class="btn accent" id="btn-run-all">Run All</button>
         </div>
@@ -137,7 +139,7 @@
         <div class="charts-board">
           <section class="panel">
             <div class="panel-head">
-              <div><h3>Accuracy Improvement Curve</h3><p>Baseline and neuro-symbolic metrics across recomputed evaluation windows.</p></div>
+              <div><h3>Neuro-Symbolic Impact Curve</h3><p>Macro F1 and attack-recall lift across recomputed evaluation windows.</p></div>
               <button class="icon-btn" data-export-chart="analysisComparisonChart">PNG</button>
             </div>
             <div class="chart-box"><canvas id="chart-analysis-comparison"></canvas></div>
@@ -245,6 +247,13 @@
         <div class="charts-board">
           <section class="panel">
             <div class="panel-head">
+              <div><h3>Conformal Coverage</h3><p>Target and observed reliability for the selected alpha.</p></div>
+              <button class="icon-btn" data-export-chart="conformalChart">PNG</button>
+            </div>
+            <div class="chart-box"><canvas id="chart-conformal"></canvas></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
               <div><h3>Calibration Curve</h3><p>Confidence vs observed accuracy by probability bin.</p></div>
               <button class="icon-btn" data-export-chart="calibrationChart">PNG</button>
             </div>
@@ -326,7 +335,7 @@
           <div>
             <span class="section-label">Dynamic system architecture</span>
             <h3>How the Neuro-Symbolic Defence Pipeline Works</h3>
-            <p>A lightweight CSS 3D model shows the data path from raw flow to decision, explanation, and containment.</p>
+            <p>A live WebGL scene shows telemetry, inference, rule evidence, and containment as an animated decision pipeline.</p>
           </div>
           <div class="control-row">
             <button class="btn ghost arch-step active" data-stage="0">Flow</button>
@@ -338,6 +347,7 @@
 
         <div class="architecture-stage">
           <div class="scene" id="scene">
+            <canvas id="architecture-canvas" aria-label="Animated 3D neuro-symbolic defence pipeline"></canvas>
             <div class="arch-legend">
               <span><i class="legend-flow"></i>Telemetry</span>
               <span><i class="legend-rule"></i>Rule evidence</span>
@@ -351,11 +361,15 @@
             <div class="packet packet-a"></div>
             <div class="packet packet-b"></div>
             <div class="packet packet-c"></div>
-            <div class="node n0"><strong>NetFlow</strong><span>packet rate, bytes, duration</span></div>
-            <div class="node n1"><strong>MLP Classifier</strong><span>class probabilities</span></div>
-            <div class="node n2"><strong>Symbolic Rules</strong><span>domain constraints and overrides</span></div>
-            <div class="node n3"><strong>Defence Layer</strong><span>warn, isolate, rate-limit, report</span></div>
-            <div class="beam b0"></div><div class="beam b1"></div><div class="beam b2"></div>
+            <div class="node n0"><strong>NetFlow</strong><span>rates, bytes, duration</span></div>
+            <div class="node n1"><strong>Neural Core</strong><span>probability manifold</span></div>
+            <div class="node n2"><strong>Rule Lattice</strong><span>auditable constraints</span></div>
+            <div class="node n3"><strong>Response Mesh</strong><span>containment controls</span></div>
+            <div class="arch-terminal" id="arch-terminal">
+              <span>LIVE PIPELINE</span>
+              <strong id="arch-terminal-stage">Flow ingestion</strong>
+              <code id="arch-terminal-code">stream.normalize(window)</code>
+            </div>
           </div>
           <aside class="architecture-notes">
             <h3 id="stage-title">Flow ingestion</h3>
@@ -368,7 +382,7 @@
   </div>
 
   <!-- dashboard.js: use Flask url_for when templated; otherwise fallback injected below -->
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260502-runall3" data-dashboard-src="true"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260503-advanced1" data-dashboard-src="true"></script>
 
   <!-- Fallback loader: if the Jinja url_for tokens were not rendered (e.g. file:// or static preview),
        replace/inject local static paths so CSS/JS actually load and event listeners can attach.
@@ -379,13 +393,13 @@
       // CSS fallback
       var cssLink = document.querySelector('link[data-static-fallback="css"]');
       if (cssLink && needsFallback(cssLink.getAttribute('href'))) {
-        cssLink.href = 'static/css/style.css?v=20260502-runall3';
+        cssLink.href = 'static/css/style.css?v=20260503-advanced1';
       }
       // JS fallback: if the templated script src was not rendered, inject a working script tag
       var dashScript = document.querySelector('script[data-dashboard-src="true"]');
       if (dashScript && needsFallback(dashScript.getAttribute('src'))) {
         var s = document.createElement('script');
-        s.src = 'static/js/dashboard.js?v=20260502-runall3';
+        s.src = 'static/js/dashboard.js?v=20260503-advanced1';
         s.defer = true;
         document.body.appendChild(s);
       }

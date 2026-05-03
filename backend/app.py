@@ -5,8 +5,13 @@ The browser UI is served from the repository frontend directory, while all model
 logic is isolated in nids_engine.py.
 """
 
-import os
+import base64
+import binascii
+import json
 import logging
+import os
+import re
+from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
@@ -88,6 +93,61 @@ def api_run_all():
     alpha = payload.get("alpha", request.args.get("alpha", 0.10, type=float))
     flow_idx = payload.get("flow_idx", request.args.get("flow_idx", 0, type=int))
     return jsonify(engine.run_all(limit=limit, alpha=alpha, flow_idx=flow_idx))
+
+
+@app.route("/api/export-charts", methods=["POST"])
+def api_export_charts():
+    payload = request.get_json(silent=True) or {}
+    charts = payload.get("charts") or []
+    if not isinstance(charts, list) or not charts:
+        raise ValueError("No charts were provided for export.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    export_dir = PROJECT_ROOT / "results" / "dashboard_chart_exports" / f"charts_{timestamp}"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for position, chart in enumerate(charts, start=1):
+        if not isinstance(chart, dict):
+            continue
+        raw_name = str(chart.get("name") or f"chart_{position}")
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name).strip("._") or f"chart_{position}"
+        image = str(chart.get("image") or "")
+        if "," in image:
+            header, image = image.split(",", 1)
+            if "image/png" not in header:
+                raise ValueError(f"{raw_name} is not a PNG chart export.")
+
+        try:
+            image_bytes = base64.b64decode(image, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"{raw_name} contains invalid chart image data.") from exc
+
+        if not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError(f"{raw_name} did not decode to a PNG image.")
+
+        filename = f"{position:02d}_{safe_name}.png"
+        path = export_dir / filename
+        path.write_bytes(image_bytes)
+        saved.append({"name": raw_name, "file": str(path), "bytes": len(image_bytes)})
+
+    if not saved:
+        raise ValueError("No valid charts were provided for export.")
+
+    manifest = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "metadata": payload.get("metadata") or {},
+        "saved": saved,
+    }
+    manifest_path = export_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    return jsonify({
+        "ok": True,
+        "export_dir": str(export_dir),
+        "manifest": str(manifest_path),
+        "saved": saved,
+    })
 
 
 @app.route("/api/backend/status")

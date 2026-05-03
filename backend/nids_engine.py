@@ -770,12 +770,20 @@ def chart_data(limit=2000):
     proposed_curve: list[float | None] = []
     f1_baseline_curve: list[float | None] = []
     f1_ns_curve: list[float | None] = []
+    f1_delta_points_curve: list[float | None] = []
+    attack_recall_delta_points_curve: list[float | None] = []
+    prediction_change_rate_curve: list[float | None] = []
     for w in windows:
-        window_eval = _evaluate_window(w)["public"]["window_metrics"]
+        window_public = _evaluate_window(w)["public"]
+        window_eval = window_public["window_metrics"]
+        window_analytics = window_public["rule_analytics"]
         existing_curve.append(window_eval["baseline_mlp"][0])
         proposed_curve.append(window_eval["neuro_symbolic"][0])
         f1_baseline_curve.append(window_eval["baseline_mlp"][3])
         f1_ns_curve.append(window_eval["neuro_symbolic"][3])
+        f1_delta_points_curve.append(json_number(window_analytics["delta_f1"] * 100.0, 6))
+        attack_recall_delta_points_curve.append(json_number(window_analytics["binary_attack_recall_delta"] * 100.0, 6))
+        prediction_change_rate_curve.append(json_number(window_analytics["prediction_change_rate"] * 100.0, 6))
     _log_chart_step(
         logs,
         f"Improvement curve recomputed from live baseline/neuro-symbolic predictions for windows {windows}.",
@@ -842,8 +850,11 @@ def chart_data(limit=2000):
             "proposed_accuracy": proposed_curve,
             "existing_f1": f1_baseline_curve,
             "proposed_f1": f1_ns_curve,
+            "f1_delta_points": f1_delta_points_curve,
+            "attack_recall_delta_points": attack_recall_delta_points_curve,
+            "prediction_change_rate_points": prediction_change_rate_curve,
             "source": "live-window recomputation",
-            "note": "Each point is recomputed from model predictions and labels for that exact prefix window.",
+            "note": "Each point is recomputed from model predictions and labels for that exact prefix window. Accuracy can overlap when symbolic rescues and changed predictions cancel out, so the dashboard plots F1 and attack-recall lift to expose the live neuro-symbolic effect.",
         },
         "per_class": {
             "labels": _classes,

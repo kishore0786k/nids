@@ -9,8 +9,12 @@ const state = {
   charts: {},
   maxIndex: 0,
   architectureTimer: null,
+  architectureScene: null,
+  windowRequestId: 0,
   lastRunDebug: null,
 };
+
+const DEBOUNCE_MS = 350;
 
 const colors = {
   blue: "#4ba3ff",
@@ -75,6 +79,47 @@ async function getJson(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`${url} returned ${res.status}`);
   return res.json();
+}
+
+function currentLimit() {
+  return Number($("#sample-window")?.value || 750);
+}
+
+function currentAlpha() {
+  const value = Number($("#novelty-alpha")?.value || 0.10);
+  if (!Number.isFinite(value)) return 0.10;
+  return Math.min(0.40, Math.max(0.01, value));
+}
+
+async function refreshWindowedDashboard() {
+  const limit = currentLimit();
+  const requestId = ++state.windowRequestId;
+  setStatus(`Recomputing charts for window ${limit}...`);
+  const [research, chartData, novelty, backend] = await Promise.all([
+    getJson(`/api/research?limit=${limit}`),
+    getJson(`/api/charts?limit=${limit}`),
+    getJson(`/api/novelty?limit=${limit}&alpha=${currentAlpha()}`),
+    getJson("/api/backend/status"),
+  ]);
+  if (requestId !== state.windowRequestId) return;
+  state.research = research;
+  state.chartData = chartData;
+  state.novelty = novelty;
+  state.backend = backend;
+  renderOverview();
+  renderAnalysis();
+  renderNovelty();
+  renderBackendStatus();
+  setStatus(`${research.limit.toLocaleString()} flows computed`);
+}
+
+async function refreshNoveltyForControls() {
+  const limit = currentLimit();
+  const alpha = currentAlpha();
+  setStatus(`Refreshing reliability for alpha ${alpha.toFixed(2)}...`);
+  state.novelty = await getJson(`/api/novelty?limit=${limit}&alpha=${alpha}`);
+  renderNovelty();
+  setStatus(`Reliability refreshed for alpha ${state.novelty.alpha}`);
 }
 
 function setView(name) {
@@ -240,25 +285,43 @@ function renderAnalysis() {
   });
 
   makeChart("analysisComparisonChart", "chart-analysis-comparison", {
-    type: "line",
+    type: "bar",
     data: {
       labels: c.improvement_curve.labels,
       datasets: [
         {
-          label: "Baseline MLP",
-          data: c.improvement_curve.existing_accuracy,
+          type: "line",
+          label: "Baseline macro F1",
+          data: c.improvement_curve.existing_f1,
           borderColor: colors.amber,
-          backgroundColor: "rgba(244,183,64,.16)",
-          tension: 0.35,
-          fill: true,
+          backgroundColor: "rgba(244,183,64,.1)",
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.25,
+          yAxisID: "y",
         },
         {
-          label: "Neuro-symbolic",
-          data: c.improvement_curve.proposed_accuracy,
+          type: "line",
+          label: "Neuro-symbolic macro F1",
+          data: c.improvement_curve.proposed_f1,
           borderColor: colors.cyan,
-          backgroundColor: "rgba(25,211,197,.14)",
-          tension: 0.35,
-          fill: true,
+          backgroundColor: "rgba(25,211,197,.12)",
+          borderWidth: 3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          tension: 0.25,
+          yAxisID: "y",
+        },
+        {
+          type: "bar",
+          label: "Attack recall lift (pts)",
+          data: c.improvement_curve.attack_recall_delta_points,
+          backgroundColor: "rgba(74,222,128,.35)",
+          borderColor: colors.green,
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: "y1",
         },
       ],
     },
@@ -267,9 +330,18 @@ function renderAnalysis() {
       maintainAspectRatio: false,
       scales: {
         x: { title: { display: true, text: "Evaluation window size" }, grid: { color: "rgba(255,255,255,.05)" } },
-        y: { ...metricScale([...c.improvement_curve.existing_accuracy, ...c.improvement_curve.proposed_accuracy]), title: { display: true, text: "Accuracy" }, grid: { color: "rgba(255,255,255,.05)" } },
+        y: { ...metricScale([...c.improvement_curve.existing_f1, ...c.improvement_curve.proposed_f1], 0.004), title: { display: true, text: "Macro F1" }, grid: { color: "rgba(255,255,255,.05)" } },
+        y1: { position: "right", beginAtZero: true, title: { display: true, text: "Attack recall lift (pts)" }, grid: { drawOnChartArea: false }, ticks: { callback: value => `${value}` } },
       },
-      plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${pct(ctx.raw, 2)}` } } },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.yAxisID === "y1"
+              ? `${ctx.dataset.label}: ${Number(ctx.raw || 0).toFixed(3)}`
+              : `${ctx.dataset.label}: ${pct(ctx.raw, 3)}`,
+          },
+        },
+      },
     },
   });
 
@@ -368,6 +440,31 @@ function renderNovelty() {
   $("#novelty-coverage").textContent = pct(n.conformal.empirical_coverage || 0);
   $("#novelty-ood").textContent = pct(n.ood_drift.ood_rate || 0);
   $("#novelty-review").textContent = n.review_queue.length;
+
+  makeChart("conformalChart", "chart-conformal", {
+    type: "bar",
+    data: {
+      labels: ["Target coverage", "Empirical coverage", "Probability threshold"],
+      datasets: [{
+        label: `Alpha ${Number(n.alpha || 0).toFixed(2)}`,
+        data: [
+          n.conformal.target_coverage,
+          n.conformal.empirical_coverage,
+          n.conformal.probability_threshold,
+        ],
+        backgroundColor: ["rgba(75,163,255,.72)", "rgba(25,211,197,.72)", "rgba(244,183,64,.72)"],
+        borderColor: [colors.blue, colors.cyan, colors.amber],
+        borderWidth: 1,
+        borderRadius: 5,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { ...chartScales(), y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } } },
+      plugins: { legend: { display: true }, tooltip: { callbacks: { label: ctx => pct(ctx.raw, 2) } } },
+    },
+  });
 
   makeChart("calibrationChart", "chart-calibration", {
     type: "line",
@@ -485,6 +582,7 @@ async function analyseFlow(index) {
   state.incident = result.incident;
   $("#flow-index").value = flow.index;
   renderDefense(flow, result.incident);
+  setStatus(`Flow ${flow.index.toLocaleString()} analysed`);
   return flow;
 }
 
@@ -573,23 +671,189 @@ const stageCopy = [
     title: "Flow ingestion",
     copy: "Telemetry is normalised into NF-ToN-IoT-V2 NetFlow features before neural inference.",
     steps: ["Capture flow tuple and traffic rates", "Standardise feature scale", "Preserve feature vector for explanation"],
+    code: "stream.normalize(window)",
   },
   {
     title: "Neural inference",
     copy: "The trained MLP estimates class probabilities across benign and attack families.",
     steps: ["Run baseline classifier", "Rank candidate attack classes", "Expose confidence distribution to the dashboard"],
+    code: "mlp.predict_proba(flow)",
   },
   {
     title: "Symbolic reasoning",
     copy: "Domain rules correct or explain neural decisions using packet-rate, byte-rate, duration, and anomaly context.",
     steps: ["Check high-rate DDoS bursts", "Check slow sustained attacks", "Attach fired-rule trace to the prediction"],
+    code: "rules.fuse(probabilities)",
   },
   {
     title: "Defence response",
     copy: "The final label is converted into practical containment guidance for analyst review.",
     steps: ["Warn user when attack is detected", "Recommend isolation, rate limiting, or blocking", "Export evidence for incident reporting"],
+    code: "response.apply(playbook)",
   },
 ];
+
+function initArchitectureScene() {
+  const canvas = $("#architecture-canvas");
+  if (!canvas || !window.THREE || state.architectureScene) return;
+
+  const THREE = window.THREE;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  if ("outputColorSpace" in renderer && THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+  camera.position.set(0, 5.8, 10.5);
+  camera.lookAt(0, 0, 0);
+
+  const root = new THREE.Group();
+  root.rotation.y = -0.18;
+  scene.add(root);
+
+  const ambient = new THREE.AmbientLight(0x8fb8ff, 0.7);
+  scene.add(ambient);
+  const key = new THREE.DirectionalLight(0x9be8ff, 1.2);
+  key.position.set(-3, 6, 8);
+  scene.add(key);
+  const rim = new THREE.PointLight(0x19d3c5, 2.2, 12);
+  rim.position.set(3, 2, 4);
+  scene.add(rim);
+
+  const grid = new THREE.GridHelper(11, 22, 0x24526c, 0x123044);
+  grid.position.y = -1.65;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.38;
+  root.add(grid);
+
+  const positions = [
+    new THREE.Vector3(-4.0, -0.9, 0.4),
+    new THREE.Vector3(-1.35, 1.2, -0.65),
+    new THREE.Vector3(1.7, -0.35, 0.35),
+    new THREE.Vector3(4.1, 1.05, -0.55),
+  ];
+  const nodeColors = [0x4ba3ff, 0xf4b740, 0x19d3c5, 0x4ade80];
+  const nodes = positions.map((position, index) => {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    const shell = new THREE.Mesh(
+      new THREE.BoxGeometry(1.35, 0.68, 1.0),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x0c1722,
+        emissive: nodeColors[index],
+        emissiveIntensity: 0.08,
+        transparent: true,
+        opacity: 0.68,
+        roughness: 0.32,
+        metalness: 0.38,
+        transmission: 0.12,
+      }),
+    );
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(shell.geometry),
+      new THREE.LineBasicMaterial({ color: nodeColors[index], transparent: true, opacity: 0.72 }),
+    );
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.28, 1),
+      new THREE.MeshStandardMaterial({ color: nodeColors[index], emissive: nodeColors[index], emissiveIntensity: 0.45, roughness: 0.25 }),
+    );
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.58, 0.012, 8, 72),
+      new THREE.MeshBasicMaterial({ color: nodeColors[index], transparent: true, opacity: 0.48 }),
+    );
+    ring.rotation.x = Math.PI / 2.5;
+    group.add(shell, edges, core, ring);
+    root.add(group);
+    return { group, shell, edges, core, ring, base: position.clone(), color: nodeColors[index] };
+  });
+
+  const curves = [];
+  for (let i = 0; i < positions.length - 1; i += 1) {
+    const start = positions[i];
+    const end = positions[i + 1];
+    const mid = start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, i % 2 === 0 ? 0.85 : -0.65, 0.35));
+    const curve = new THREE.CatmullRomCurve3([start, mid, end]);
+    curves.push(curve);
+    const tube = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 44, 0.018, 8, false),
+      new THREE.MeshBasicMaterial({ color: i === 1 ? 0xf4b740 : 0x19d3c5, transparent: true, opacity: 0.42 }),
+    );
+    root.add(tube);
+  }
+  const fullPath = new THREE.CatmullRomCurve3([
+    positions[0],
+    positions[0].clone().lerp(positions[1], 0.5).add(new THREE.Vector3(0, 0.85, 0.35)),
+    positions[1],
+    positions[1].clone().lerp(positions[2], 0.5).add(new THREE.Vector3(0, -0.65, 0.35)),
+    positions[2],
+    positions[2].clone().lerp(positions[3], 0.5).add(new THREE.Vector3(0, 0.85, 0.35)),
+    positions[3],
+  ]);
+
+  const particleGeometry = new THREE.SphereGeometry(0.055, 12, 12);
+  const particles = Array.from({ length: 32 }, (_, index) => {
+    const material = new THREE.MeshBasicMaterial({
+      color: index % 5 === 0 ? 0xf4b740 : index % 3 === 0 ? 0x4ba3ff : 0x19d3c5,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const particle = new THREE.Mesh(particleGeometry, material);
+    root.add(particle);
+    return { mesh: particle, offset: index / 32, speed: 0.035 + (index % 7) * 0.004 };
+  });
+
+  const resize = () => {
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  };
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(canvas);
+  resize();
+
+  let frame = 0;
+  const clock = new THREE.Clock();
+  const animate = () => {
+    const elapsed = clock.getElapsedTime();
+    root.rotation.y = -0.18 + Math.sin(elapsed * 0.18) * 0.08;
+    nodes.forEach((node, index) => {
+      const active = state.architectureScene?.activeStage === index;
+      const pulse = active ? 1.0 + Math.sin(elapsed * 3.2) * 0.045 : 1.0;
+      node.group.scale.setScalar(pulse);
+      node.group.position.y = node.base.y + Math.sin(elapsed * 1.4 + index) * 0.055;
+      node.ring.rotation.z += active ? 0.028 : 0.01;
+      node.core.rotation.x += 0.012 + index * 0.001;
+      node.core.rotation.y += 0.018;
+    });
+    particles.forEach(item => {
+      const progress = (item.offset + elapsed * item.speed) % 1;
+      item.mesh.position.copy(fullPath.getPointAt(progress));
+      item.mesh.material.opacity = 0.35 + Math.sin(progress * Math.PI) * 0.58;
+    });
+    renderer.render(scene, camera);
+    frame = requestAnimationFrame(animate);
+  };
+
+  state.architectureScene = { renderer, scene, camera, root, nodes, particles, resizeObserver, activeStage: 0, animationFrame: frame };
+  updateArchitectureSceneStage(0);
+  animate();
+}
+
+function updateArchitectureSceneStage(stage) {
+  const arch = state.architectureScene;
+  if (!arch) return;
+  arch.activeStage = stage;
+  arch.nodes.forEach((node, index) => {
+    const active = index === stage;
+    node.shell.material.emissiveIntensity = active ? 0.48 : 0.08;
+    node.shell.material.opacity = active ? 0.86 : 0.58;
+    node.edges.material.opacity = active ? 1 : 0.52;
+    node.core.material.emissiveIntensity = active ? 1.2 : 0.42;
+    node.ring.material.opacity = active ? 0.95 : 0.42;
+  });
+}
 
 function setArchitectureStage(stage) {
   $$(".arch-step").forEach(btn => btn.classList.toggle("active", Number(btn.dataset.stage) === stage));
@@ -597,8 +861,11 @@ function setArchitectureStage(stage) {
   $("#stage-title").textContent = stageCopy[stage].title;
   $("#stage-copy").textContent = stageCopy[stage].copy;
   $("#stage-steps").innerHTML = stageCopy[stage].steps.map(step => `<li>${step}</li>`).join("");
+  $("#arch-terminal-stage").textContent = stageCopy[stage].title;
+  $("#arch-terminal-code").textContent = stageCopy[stage].code;
   const scene = $("#scene");
   if (scene) scene.dataset.stage = stage;
+  updateArchitectureSceneStage(stage);
 }
 
 function startArchitectureLoop() {
@@ -625,10 +892,40 @@ function rowsToCsv(rows) {
   return rows.map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
 }
 
+function renderedChartPayload() {
+  return Object.entries(state.charts)
+    .map(([name, chart]) => {
+      if (!chart || !chart.canvas) return null;
+      chart.resize();
+      chart.update("none");
+      const image = chart.toBase64Image("image/png", 1);
+      if (!image || image === "data:,") return null;
+      return { name, image };
+    })
+    .filter(Boolean);
+}
+
+async function exportAllChartsToProject() {
+  const charts = renderedChartPayload();
+  if (!charts.length) throw new Error("No rendered charts are available to export yet.");
+
+  const result = await postJson("/api/export-charts", {
+    charts,
+    metadata: {
+      window: currentLimit(),
+      alpha: currentAlpha(),
+      flow_index: state.flow?.index ?? null,
+    },
+  });
+  $("#run-all-feedback").textContent = `Saved ${result.saved.length} charts`;
+  setStatus(`Saved ${result.saved.length} charts to ${result.export_dir}`);
+}
+
 function setupExports() {
   $("#btn-export-json").addEventListener("click", () => {
     download("neuro_symbolic_dashboard_export.json", JSON.stringify({ overview: state.overview, research: state.research, flow: state.flow }, null, 2), "application/json");
   });
+  bindAsyncClick("#btn-export-all-charts", "Exporting charts", exportAllChartsToProject);
   $("#btn-export-flow").addEventListener("click", () => {
     if (!state.flow) return;
     const rows = [["field", "value"], ...Object.entries(state.flow.features), ["true_label", state.flow.true_label], ["proposed_label", state.flow.ns_label], ["action", state.flow.defense.action]];
@@ -674,49 +971,20 @@ function setupControls() {
     sampleEl.addEventListener("input", event => {
       const val = event.target.value;
       $("#sample-window-value").textContent = val;
-      // Schedule recompute (debounced) so charts update while sliding
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try {
-          setStatus(`Recomputing charts for window ${val}...`);
-          const [research, chartData, novelty, backend] = await Promise.all([
-            getJson(`/api/research?limit=${val}`),
-            getJson(`/api/charts?limit=${val}`),
-            getJson(`/api/novelty?limit=${val}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
-            getJson("/api/backend/status"),
-          ]);
-          state.research = research;
-          state.chartData = chartData;
-          state.novelty = novelty;
-          state.backend = backend;
-          renderOverview();
-          renderAnalysis();
-          renderNovelty();
-          setStatus(`${research.limit.toLocaleString()} flows computed`);
+          await refreshWindowedDashboard();
         } catch (err) {
           showActionError(err);
         }
       }, DEBOUNCE_MS);
     });
-    // Keep a 'change' listener as a fallback for commit (immediate, no debounce)
     sampleEl.addEventListener("change", async event => {
-      const val = event.target.value;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      $("#sample-window-value").textContent = event.target.value;
       try {
-        setStatus(`Recomputing charts for window ${val}...`);
-        const [research, chartData, novelty, backend] = await Promise.all([
-          getJson(`/api/research?limit=${val}`),
-          getJson(`/api/charts?limit=${val}`),
-          getJson(`/api/novelty?limit=${val}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
-          getJson("/api/backend/status"),
-        ]);
-        state.research = research;
-        state.chartData = chartData;
-        state.novelty = novelty;
-        state.backend = backend;
-        renderOverview();
-        renderAnalysis();
-        renderNovelty();
-        setStatus(`${research.limit.toLocaleString()} flows computed`);
+        await refreshWindowedDashboard();
       } catch (err) {
         showActionError(err);
       }
@@ -724,13 +992,30 @@ function setupControls() {
   }
 
   bindAsyncClick("#btn-refresh-novelty", "Refreshing reliability evidence", async () => {
-    const limit = $("#sample-window")?.value || 750;
-    const alpha = $("#novelty-alpha")?.value || 0.10;
-    state.novelty = await getJson(`/api/novelty?limit=${limit}&alpha=${alpha}`);
-    renderNovelty();
+    await refreshNoveltyForControls();
   });
+
+  const alphaEl = $("#novelty-alpha");
+  if (alphaEl) {
+    let alphaTimer = null;
+    alphaEl.addEventListener("input", () => {
+      if (alphaTimer) clearTimeout(alphaTimer);
+      alphaTimer = setTimeout(() => refreshNoveltyForControls().catch(showActionError), DEBOUNCE_MS);
+    });
+    alphaEl.addEventListener("change", () => {
+      if (alphaTimer) clearTimeout(alphaTimer);
+      refreshNoveltyForControls().catch(showActionError);
+    });
+  }
+
   bindAsyncClick("#btn-analyse-flow", "Analysing flow", () => analyseFlow());
-  bindAsyncClick("#btn-random-flow", "Selecting random flow", () => analyseFlow(Math.floor(Math.random() * (state.maxIndex + 1))));
+  bindAsyncClick("#btn-random-flow", "Selecting random flow", () => {
+    const current = Number($("#flow-index")?.value || 0);
+    if (state.maxIndex <= 0) return analyseFlow(0);
+    let next = Math.floor(Math.random() * state.maxIndex);
+    if (next >= current) next += 1;
+    return analyseFlow(Math.min(next, state.maxIndex));
+  });
   bindAsyncClick("#btn-contain-flow", "Applying simulated containment", async () => {
     if (!state.incident) return;
     const result = await postJson("/api/defense/contain", { incident_id: state.incident.incident_id });
@@ -747,11 +1032,13 @@ function setupControls() {
 
 async function loadDashboard() {
   $("#cache-status").textContent = "Loading research cache";
+  const limit = currentLimit();
+  const alpha = currentAlpha();
   const [overview, research, chartData, novelty, backend] = await Promise.all([
     getJson("/api/overview"),
-    getJson(`/api/research?limit=${$("#sample-window")?.value || 750}`),
-    getJson(`/api/charts?limit=${$("#sample-window")?.value || 750}`),
-    getJson(`/api/novelty?limit=${$("#sample-window")?.value || 750}&alpha=${$("#novelty-alpha")?.value || 0.10}`),
+    getJson(`/api/research?limit=${limit}`),
+    getJson(`/api/charts?limit=${limit}`),
+    getJson(`/api/novelty?limit=${limit}&alpha=${alpha}`),
     getJson("/api/backend/status"),
   ]);
   state.overview = overview;
@@ -771,8 +1058,8 @@ async function loadDashboard() {
 async function runAll() {
   const button = $("#btn-run-all");
   const feedback = $("#run-all-feedback");
-  const limit = $("#sample-window")?.value || 750;
-  const alpha = $("#novelty-alpha")?.value || 0.10;
+  const limit = currentLimit();
+  const alpha = currentAlpha();
   const flowIdx = $("#flow-index")?.value || 0;
   button.classList.add("loading");
   feedback.textContent = "Recomputing...";
@@ -803,6 +1090,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupControls();
   setupExports();
+  initArchitectureScene();
   loadDashboard().catch(error => {
     showActionError(error);
     setStatus("Dashboard data failed to load");
