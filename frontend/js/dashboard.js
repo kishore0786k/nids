@@ -86,19 +86,57 @@ function currentLimit() {
 }
 
 function currentAlpha() {
-  const value = Number($("#novelty-alpha")?.value || 0.10);
-  if (!Number.isFinite(value)) return 0.10;
-  return Math.min(0.40, Math.max(0.01, value));
+  const value = Number($("#novelty-alpha")?.value || 0.65);
+  if (!Number.isFinite(value)) return 0.65;
+  return Math.min(0.95, Math.max(0.05, value));
+}
+
+function currentBeta() {
+  const value = Number($("#fusion-beta")?.value);
+  if (Number.isFinite(value)) return Math.min(0.95, Math.max(0.0, value));
+  return Number((1 - currentAlpha()).toFixed(2));
+}
+
+function currentFusionMode() {
+  return $("#fusion-mode")?.checked ? "soft" : "hard";
+}
+
+function currentSeed() {
+  const value = Number($("#seed-selector")?.value || 60);
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 60;
+}
+
+function currentFlowIndex() {
+  const value = Number($("#flow-index")?.value || 0);
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+function currentParams(overrides = {}) {
+  return {
+    window_size: currentLimit(),
+    flow_index: currentFlowIndex(),
+    alpha: currentAlpha(),
+    beta: currentBeta(),
+    fusion_mode: currentFusionMode(),
+    seed: currentSeed(),
+    ...overrides,
+  };
+}
+
+function queryString(params = currentParams()) {
+  return new URLSearchParams(params).toString();
 }
 
 async function refreshWindowedDashboard() {
   const limit = currentLimit();
   const requestId = ++state.windowRequestId;
-  setStatus(`Recomputing charts for window ${limit}...`);
+  const params = currentParams({ window_size: limit });
+  const qs = queryString(params);
+  setStatus(`Recomputing charts for window ${limit}, seed ${params.seed}, ${params.fusion_mode} fusion...`);
   const [research, chartData, novelty, backend] = await Promise.all([
-    getJson(`/api/research?limit=${limit}`),
-    getJson(`/api/charts?limit=${limit}`),
-    getJson(`/api/novelty?limit=${limit}&alpha=${currentAlpha()}`),
+    getJson(`/api/research?${qs}`),
+    getJson(`/api/charts?${qs}`),
+    getJson(`/api/novelty?${qs}`),
     getJson("/api/backend/status"),
   ]);
   if (requestId !== state.windowRequestId) return;
@@ -116,8 +154,9 @@ async function refreshWindowedDashboard() {
 async function refreshNoveltyForControls() {
   const limit = currentLimit();
   const alpha = currentAlpha();
+  const qs = queryString(currentParams({ window_size: limit, alpha }));
   setStatus(`Refreshing reliability for alpha ${alpha.toFixed(2)}...`);
-  state.novelty = await getJson(`/api/novelty?limit=${limit}&alpha=${alpha}`);
+  state.novelty = await getJson(`/api/novelty?${qs}`);
   renderNovelty();
   setStatus(`Reliability refreshed for alpha ${state.novelty.alpha}`);
 }
@@ -218,17 +257,29 @@ function renderOverview() {
   });
 
   makeChart("distributionChart", "chart-distribution", {
-    type: "doughnut",
+    type: "bar",
     data: {
       labels: r.class_distribution.labels,
-      datasets: [{
-        data: r.class_distribution.values,
-        backgroundColor: [colors.blue, colors.green, colors.red, colors.violet, colors.amber, colors.cyan, "#ff7ac8"],
-        borderColor: "#101720",
-        borderWidth: 2,
-      }],
+      datasets: [
+        {
+          label: "Baseline labels",
+          data: r.class_distribution.baseline_values || r.class_distribution.values,
+          backgroundColor: "rgba(244,183,64,.55)",
+          borderColor: colors.amber,
+          borderWidth: 1,
+          borderRadius: 5,
+        },
+        {
+          label: "Proposed labels",
+          data: r.class_distribution.proposed_values || r.class_distribution.values,
+          backgroundColor: "rgba(25,211,197,.62)",
+          borderColor: colors.cyan,
+          borderWidth: 1,
+          borderRadius: 5,
+        },
+      ],
     },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "58%" },
+    options: { responsive: true, maintainAspectRatio: false, scales: chartScales() },
   });
   renderImpactProof();
   renderArchitectureTelemetry();
@@ -383,7 +434,10 @@ function renderAnalysis() {
     type: "bar",
     data: {
       labels: c.class_error_rate.labels,
-      datasets: [{ label: "Error rate", data: c.class_error_rate.values, backgroundColor: "rgba(255,91,110,.62)", borderColor: colors.red, borderWidth: 1, borderRadius: 5 }],
+      datasets: [
+        { label: "Baseline error", data: c.class_error_rate.baseline_values || c.class_error_rate.values, backgroundColor: "rgba(244,183,64,.55)", borderColor: colors.amber, borderWidth: 1, borderRadius: 5 },
+        { label: "Proposed error", data: c.class_error_rate.proposed_values || c.class_error_rate.values, backgroundColor: "rgba(255,91,110,.62)", borderColor: colors.red, borderWidth: 1, borderRadius: 5 },
+      ],
     },
     options: { responsive: true, maintainAspectRatio: false, scales: { ...chartScales(), y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } } }, plugins: { tooltip: { callbacks: { label: ctx => pct(ctx.raw, 2) } } } },
   });
@@ -392,7 +446,8 @@ function renderAnalysis() {
     type: "line",
     data: {
       datasets: [
-        { label: `ROC AUC ${c.roc_curve.auc ?? "n/a"}`, data: c.roc_curve.points, borderColor: colors.green, backgroundColor: "rgba(74,222,128,.12)", parsing: false, pointRadius: 0, tension: 0.25, fill: true },
+        { label: `Baseline ROC AUC ${c.roc_curve.baseline?.auc ?? "n/a"}`, data: c.roc_curve.baseline?.points || c.roc_curve.points, borderColor: colors.amber, backgroundColor: "transparent", parsing: false, pointRadius: 0, borderDash: [7, 4], tension: 0.25 },
+        { label: `Proposed ROC AUC ${c.roc_curve.proposed?.auc ?? c.roc_curve.auc ?? "n/a"}`, data: c.roc_curve.proposed?.points || c.roc_curve.points, borderColor: colors.green, backgroundColor: "rgba(74,222,128,.12)", parsing: false, pointRadius: 0, tension: 0.25, fill: true },
         { label: "Random baseline", data: [{ x: 0, y: 0 }, { x: 1, y: 1 }], borderColor: "rgba(143,162,179,.55)", borderDash: [4, 4], pointRadius: 0 },
       ],
     },
@@ -402,6 +457,43 @@ function renderAnalysis() {
       scales: {
         x: { type: "linear", min: 0, max: 1, title: { display: true, text: "False positive rate" }, grid: { color: "rgba(255,255,255,.05)" } },
         y: { min: 0, max: 1, title: { display: true, text: "True positive rate" }, grid: { color: "rgba(255,255,255,.05)" } },
+      },
+    },
+  });
+
+  makeChart("differenceChart", "chart-difference", {
+    type: "bar",
+    data: {
+      labels: c.difference_chart.labels,
+      datasets: [{
+        label: "Proposed minus baseline",
+        data: c.difference_chart.values,
+        backgroundColor: c.difference_chart.values.map(value => Number(value) >= 0 ? "rgba(74,222,128,.65)" : "rgba(255,91,110,.65)"),
+        borderColor: c.difference_chart.values.map(value => Number(value) >= 0 ? colors.green : colors.red),
+        borderWidth: 1,
+        borderRadius: 5,
+      }],
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => signedPct(ctx.raw, 3) } } } },
+  });
+
+  makeChart("attackRecallGainChart", "chart-attack-recall-gain", {
+    type: "bar",
+    data: {
+      labels: c.attack_recall_gain.labels,
+      datasets: [
+        { label: "Baseline recall", data: c.attack_recall_gain.baseline, backgroundColor: "rgba(244,183,64,.45)", borderColor: colors.amber, borderWidth: 1, borderRadius: 5 },
+        { label: "Proposed recall", data: c.attack_recall_gain.proposed, backgroundColor: "rgba(25,211,197,.55)", borderColor: colors.cyan, borderWidth: 1, borderRadius: 5 },
+        { type: "line", label: "Recall gain", data: c.attack_recall_gain.values, borderColor: colors.green, backgroundColor: "rgba(74,222,128,.12)", pointRadius: 4, yAxisID: "y1" },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        ...chartScales(),
+        y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } },
+        y1: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: value => `${Number(value).toFixed(2)}` } },
       },
     },
   });
@@ -559,6 +651,8 @@ function renderAuditTable(rows) {
       <td>${row.true}</td>
       <td>${row.baseline}</td>
       <td>${row.proposed}</td>
+      <td>${row.changed_prediction ? "yes" : "no"}</td>
+      <td>${Number(row.rule_strength || 0).toFixed(3)}</td>
       <td class="risk-${row.risk}">${row.risk.toUpperCase()}</td>
     </tr>
   `).join("");
@@ -576,7 +670,7 @@ async function postJson(url, payload) {
 
 async function analyseFlow(index) {
   index = typeof index !== "undefined" ? index : Number($("#flow-index")?.value || 0);
-  const result = await postJson("/api/defense/analyse", { idx: index });
+  const result = await postJson("/api/defense/analyse", currentParams({ flow_index: index, idx: index }));
   const flow = result.flow;
   state.flow = flow;
   state.incident = result.incident;
@@ -638,6 +732,9 @@ function renderDefense(flow, incident) {
     ["True label", flow.true_label],
     ["Existing prediction", flow.base_pred],
     ["Proposed prediction", flow.ns_label],
+    ["Changed prediction", flow.changed_prediction ? "yes" : "no"],
+    ["Rule strength", Number(flow.rule_strength || 0).toFixed(3)],
+    ["Explanation", flow.explanation || ""],
     ["Robust model", flow.robust_pred || "Unavailable"],
     ["Symbolic trace", rules],
     ...topFeatures,
@@ -998,23 +1095,60 @@ function setupControls() {
   const alphaEl = $("#novelty-alpha");
   if (alphaEl) {
     let alphaTimer = null;
+    const syncBeta = () => {
+      const betaEl = $("#fusion-beta");
+      if (betaEl) betaEl.value = Number((1 - currentAlpha()).toFixed(2));
+    };
     alphaEl.addEventListener("input", () => {
+      syncBeta();
       if (alphaTimer) clearTimeout(alphaTimer);
-      alphaTimer = setTimeout(() => refreshNoveltyForControls().catch(showActionError), DEBOUNCE_MS);
+      alphaTimer = setTimeout(() => refreshWindowedDashboard().catch(showActionError), DEBOUNCE_MS);
     });
     alphaEl.addEventListener("change", () => {
+      syncBeta();
       if (alphaTimer) clearTimeout(alphaTimer);
-      refreshNoveltyForControls().catch(showActionError);
+      refreshWindowedDashboard().catch(showActionError);
     });
   }
 
-  bindAsyncClick("#btn-analyse-flow", "Analysing flow", () => analyseFlow());
+  ["#fusion-beta", "#seed-selector", "#fusion-mode"].forEach(selector => {
+    const el = $(selector);
+    if (!el) return;
+    let timer = null;
+    const eventName = el.type === "checkbox" ? "change" : "input";
+    el.addEventListener(eventName, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => refreshWindowedDashboard().catch(showActionError), DEBOUNCE_MS);
+    });
+    if (eventName !== "change") {
+      el.addEventListener("change", () => refreshWindowedDashboard().catch(showActionError));
+    }
+  });
+
+  const flowIndexEl = $("#flow-index");
+  if (flowIndexEl) {
+    let flowTimer = null;
+    flowIndexEl.addEventListener("change", async () => {
+      if (flowTimer) clearTimeout(flowTimer);
+      try {
+        await analyseFlow();
+        await refreshWindowedDashboard();
+      } catch (err) {
+        showActionError(err);
+      }
+    });
+  }
+
+  bindAsyncClick("#btn-analyse-flow", "Analysing flow", async () => {
+    await analyseFlow();
+    await refreshWindowedDashboard();
+  });
   bindAsyncClick("#btn-random-flow", "Selecting random flow", () => {
     const current = Number($("#flow-index")?.value || 0);
-    if (state.maxIndex <= 0) return analyseFlow(0);
+    if (state.maxIndex <= 0) return analyseFlow(0).then(refreshWindowedDashboard);
     let next = Math.floor(Math.random() * state.maxIndex);
     if (next >= current) next += 1;
-    return analyseFlow(Math.min(next, state.maxIndex));
+    return analyseFlow(Math.min(next, state.maxIndex)).then(refreshWindowedDashboard);
   });
   bindAsyncClick("#btn-contain-flow", "Applying simulated containment", async () => {
     if (!state.incident) return;
@@ -1032,13 +1166,12 @@ function setupControls() {
 
 async function loadDashboard() {
   $("#cache-status").textContent = "Loading research cache";
-  const limit = currentLimit();
-  const alpha = currentAlpha();
+  const qs = queryString();
   const [overview, research, chartData, novelty, backend] = await Promise.all([
     getJson("/api/overview"),
-    getJson(`/api/research?limit=${limit}`),
-    getJson(`/api/charts?limit=${limit}`),
-    getJson(`/api/novelty?limit=${limit}&alpha=${alpha}`),
+    getJson(`/api/research?${qs}`),
+    getJson(`/api/charts?${qs}`),
+    getJson(`/api/novelty?${qs}`),
     getJson("/api/backend/status"),
   ]);
   state.overview = overview;
@@ -1058,13 +1191,10 @@ async function loadDashboard() {
 async function runAll() {
   const button = $("#btn-run-all");
   const feedback = $("#run-all-feedback");
-  const limit = currentLimit();
-  const alpha = currentAlpha();
-  const flowIdx = $("#flow-index")?.value || 0;
   button.classList.add("loading");
   feedback.textContent = "Recomputing...";
   try {
-    const result = await postJson("/api/run-all", { limit, alpha, flow_idx: flowIdx });
+    const result = await postJson("/api/run-all", currentParams({ limit: currentLimit(), flow_idx: currentFlowIndex() }));
     state.overview = result.overview;
     state.research = result.research;
     state.chartData = result.charts;

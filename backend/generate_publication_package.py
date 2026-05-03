@@ -213,20 +213,36 @@ def write_tex_files(overview: dict, charts: dict, backend: dict, ablation: dict,
     )
 
 
-def build_package(limit: int | None = None) -> dict:
+def build_package(
+    limit: int | None = None,
+    alpha: float = engine.DEFAULT_ALPHA,
+    beta: float | None = None,
+    fusion_mode: str = engine.SYMBOLIC_FUSION_MODE,
+    seed: int = engine.DEFAULT_SEED,
+    flow_index: int = 0,
+) -> dict:
     ensure_dirs()
     overview = engine.overview_data()
     backend = engine.backend_status()
     evaluation_limit = backend["test_rows"] if limit is None else limit
-    charts = engine.chart_data(evaluation_limit)
-    ablation = engine.ablation_data(evaluation_limit)
-    novelty = engine.novelty_data(evaluation_limit)
+    params = {
+        "window_size": evaluation_limit,
+        "flow_index": flow_index,
+        "alpha": alpha,
+        "beta": beta,
+        "fusion_mode": fusion_mode,
+        "seed": seed,
+    }
+    charts = engine.chart_data(**params)
+    ablation = engine.ablation_data(**params)
+    novelty = engine.novelty_data(evaluation_limit, min(0.40, max(0.01, alpha)), flow_index=flow_index, seed=seed)
     figures = generate_figures(charts)
     write_tex_files(overview, charts, backend, ablation, novelty)
 
     package = {
         "project": "Neuro-Symbolic NIDS",
         "dataset": "NF-ToN-IoT-V2",
+        "protocol": charts.get("parameters", params),
         "backend": backend,
         "overview": overview,
         "charts": charts,

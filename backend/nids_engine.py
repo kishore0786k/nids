@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, NamedTuple
 
 import joblib
 import numpy as np
@@ -31,6 +31,9 @@ MAX_ANALYSIS_LIMIT = 25000
 MAX_CHART_LIMIT = 25000
 SYMBOLIC_FUSION_MODE = "hard"
 ROBUST_PATH = ROBUST_MODEL_PATH
+DEFAULT_ALPHA = 0.65
+DEFAULT_BETA = 0.35
+DEFAULT_SEED = 60
 
 _base_model = None
 _robust_model = None
@@ -50,6 +53,17 @@ class ResourceLoadError(RuntimeError):
     """Raised when a required model/data resource cannot be loaded."""
 
 
+class EvalConfig(NamedTuple):
+    """Sanitized live-evaluation controls used as cache keys and evidence metadata."""
+
+    window_size: int
+    flow_index: int
+    alpha: float
+    beta: float
+    fusion_mode: str
+    seed: int
+
+
 def _coerce_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
     try:
         out = int(float(value))
@@ -60,6 +74,92 @@ def _coerce_int(value: Any, default: int, minimum: int | None = None, maximum: i
     if maximum is not None:
         out = min(maximum, out)
     return out
+
+
+def _coerce_float(value: Any, default: float, minimum: float | None = None, maximum: float | None = None) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        out = float(default)
+    if not np.isfinite(out):
+        out = float(default)
+    if minimum is not None:
+        out = max(float(minimum), out)
+    if maximum is not None:
+        out = min(float(maximum), out)
+    return out
+
+
+def evaluation_config(
+    window_size: Any = 750,
+    flow_index: Any = 0,
+    alpha: Any = DEFAULT_ALPHA,
+    beta: Any | None = None,
+    fusion_mode: Any = SYMBOLIC_FUSION_MODE,
+    seed: Any = DEFAULT_SEED,
+) -> EvalConfig:
+    """Return one canonical parameter object for all live backend recomputation."""
+    load_resources()
+    clean_window = _coerce_int(
+        window_size,
+        default=750,
+        minimum=MIN_ANALYSIS_LIMIT,
+        maximum=min(MAX_ANALYSIS_LIMIT, len(_X_test)),
+    )
+    clean_flow = _coerce_int(flow_index, default=0, minimum=0, maximum=len(_X_test) - 1)
+    clean_alpha = _coerce_float(alpha, DEFAULT_ALPHA, 0.0, 1.0)
+    clean_beta = _coerce_float(beta, 1.0 - clean_alpha, 0.0, 1.0) if beta is not None else 1.0 - clean_alpha
+    if clean_alpha + clean_beta <= 0:
+        clean_alpha, clean_beta = DEFAULT_ALPHA, DEFAULT_BETA
+    mode = str(fusion_mode or SYMBOLIC_FUSION_MODE).strip().lower()
+    if mode not in {"hard", "soft"}:
+        mode = SYMBOLIC_FUSION_MODE
+    clean_seed = _coerce_int(seed, default=DEFAULT_SEED, minimum=0, maximum=2_147_483_647)
+    return EvalConfig(
+        window_size=clean_window,
+        flow_index=clean_flow,
+        alpha=round(clean_alpha, 6),
+        beta=round(clean_beta, 6),
+        fusion_mode=mode,
+        seed=clean_seed,
+    )
+
+
+def _config_key(config: EvalConfig) -> tuple[Any, ...]:
+    return (
+        config.window_size,
+        config.flow_index,
+        round(config.alpha, 6),
+        round(config.beta, 6),
+        config.fusion_mode,
+        config.seed,
+    )
+
+
+def _config_public(config: EvalConfig) -> dict[str, Any]:
+    return {
+        "window_size": config.window_size,
+        "flow_index": config.flow_index,
+        "alpha": json_number(config.alpha, 6),
+        "beta": json_number(config.beta, 6),
+        "fusion_mode": config.fusion_mode,
+        "seed": config.seed,
+    }
+
+
+def _window_indices(config: EvalConfig) -> np.ndarray:
+    """Deterministic seed/flow-index aware sample window.
+
+    The selected flow anchors the permutation so the single-flow selector also
+    changes aggregate charts, while `seed` makes the experiment reproducible.
+    """
+    n_rows = len(_X_test)
+    rng = np.random.default_rng(config.seed)
+    order = rng.permutation(n_rows)
+    matches = np.flatnonzero(order == config.flow_index)
+    if matches.size:
+        order = np.roll(order, -int(matches[0]))
+    return order[: min(config.window_size, n_rows)]
 
 
 def _as_path(path: str | Path) -> Path:
@@ -344,25 +444,44 @@ def defense_action(label, confidence, fired_rules):
     return {"level": "Critical" if confidence >= 0.85 else "Elevated", "action": action, "playbook": playbook}
 
 
-def predict_row(index):
+def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSION_MODE, seed=DEFAULT_SEED):
     load_resources()
     idx = _coerce_int(index, default=0, minimum=0, maximum=len(_X_test) - 1)
+    config = evaluation_config(
+        window_size=max(MIN_ANALYSIS_LIMIT, min(750, len(_X_test))),
+        flow_index=idx,
+        alpha=alpha,
+        beta=beta,
+        fusion_mode=fusion_mode,
+        seed=seed,
+    )
     sample = _X_test.iloc[idx]
     true_label = str(_y_test.iloc[idx])
     sample_frame = sample.to_frame().T
     model_input = _model_input(_base_model, sample_frame)
     base_probs = _base_model.predict_proba(model_input)[0]
     base_pred = str(_classes[int(np.argmax(base_probs))])
-    ns_label, fired_rules, _ = apply_symbolic_rules(
+    ns_label, fired_rules, strength = apply_symbolic_rules(
         sample,
         base_pred,
         predicted_probs=base_probs,
         class_labels=_classes,
         rule_context=_get_symbolic_context(),
-        fusion_mode=SYMBOLIC_FUSION_MODE,
+        fusion_mode=config.fusion_mode,
+        alpha=config.alpha,
+        beta=config.beta,
+        confidence_threshold=0.55 + 0.30 * config.alpha,
+        strong_rule_threshold=0.72 + 0.20 * config.alpha,
     )
     ns_label = str(ns_label)
     confidence = float(np.max(base_probs))
+    applied = [rule for rule in fired_rules if bool(rule.get("applied"))]
+    changed_prediction = ns_label != base_pred
+    explanation = (
+        applied[0].get("reason")
+        if applied
+        else next((rule.get("reason") for rule in fired_rules if rule.get("rule_id") != "NONE"), "No symbolic rule triggered; neural prediction retained.")
+    )
 
     robust_pred = None
     if _robust_model is not None:
@@ -374,14 +493,19 @@ def predict_row(index):
 
     return {
         "index": idx,
+        "parameters": _config_public(config),
         "true_label": true_label,
         "base_pred": base_pred,
         "ns_label": ns_label,
+        "final_label": ns_label,
         "robust_pred": robust_pred,
         "confidence": json_number(confidence, 6),
         "risk": "attack" if is_attack(ns_label) else "benign",
         "defense": defense_action(ns_label, confidence, fired_rules),
         "fired_rules": fired_rules,
+        "rule_strength": json_number(float(strength), 6),
+        "explanation": explanation,
+        "changed_prediction": bool(changed_prediction),
         "probabilities": {
             "labels": _classes,
             "values": [json_number(p, 6) for p in base_probs],
@@ -419,8 +543,8 @@ def make_incident(flow):
     return incident
 
 
-def analyse_defense(index):
-    flow = predict_row(index)
+def analyse_defense(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSION_MODE, seed=DEFAULT_SEED):
+    flow = predict_row(index, alpha=alpha, beta=beta, fusion_mode=fusion_mode, seed=seed)
     return {"flow": flow, "incident": make_incident(flow)}
 
 
@@ -476,6 +600,45 @@ def _attack_recall_deltas(
             "recall_delta": json_number(ns_recall - baseline_recall, 6),
         })
     return rows
+
+
+def _rule_score_matrix(rule_traces: list[list[dict[str, Any]]], labels: list[str]) -> np.ndarray:
+    label_pos = {str(label): idx for idx, label in enumerate(labels)}
+    scores = np.zeros((len(rule_traces), len(labels)), dtype=float)
+    for row_idx, rules in enumerate(rule_traces):
+        for rule in rules:
+            if rule.get("rule_id") == "NONE":
+                continue
+            target = str(rule.get("new_label"))
+            if target in label_pos:
+                scores[row_idx, label_pos[target]] = max(
+                    scores[row_idx, label_pos[target]],
+                    float(rule.get("strength", 0.0) or 0.0),
+                )
+    row_sums = scores.sum(axis=1, keepdims=True)
+    return np.divide(scores, row_sums, out=np.zeros_like(scores), where=row_sums > 0)
+
+
+def _fused_probabilities(
+    probabilities: np.ndarray,
+    ns_preds: np.ndarray,
+    rule_traces: list[list[dict[str, Any]]],
+    config: EvalConfig,
+) -> np.ndarray:
+    """Create a separate proposed probability surface for charts and ROC evidence."""
+    base = np.asarray(probabilities, dtype=float).copy()
+    rule_scores = _rule_score_matrix(rule_traces, _classes)
+    fused = config.alpha * base + config.beta * rule_scores
+    label_pos = {str(label): idx for idx, label in enumerate(_classes)}
+    for row_idx, final_label in enumerate(ns_preds):
+        pos = label_pos.get(str(final_label))
+        if pos is None:
+            continue
+        applied = any(bool(rule.get("applied")) for rule in rule_traces[row_idx])
+        if applied:
+            fused[row_idx, pos] = max(fused[row_idx, pos], 0.51 + 0.25 * config.beta)
+    row_sums = fused.sum(axis=1, keepdims=True)
+    return np.divide(fused, row_sums, out=base.copy(), where=row_sums > 0)
 
 
 def _novelty_examples(
@@ -590,15 +753,31 @@ def _rule_analytics(
     }
 
 
-def _evaluate_window(limit=750) -> dict[str, Any]:
+def _evaluate_window(
+    window_size=750,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+) -> dict[str, Any]:
     load_resources()
-    limit = _coerce_int(limit, default=750, minimum=MIN_ANALYSIS_LIMIT, maximum=min(MAX_ANALYSIS_LIMIT, len(_X_test)))
-    if limit in _evaluation_cache:
-        return _evaluation_cache[limit]
+    config = evaluation_config(
+        window_size=window_size,
+        flow_index=flow_index,
+        alpha=alpha,
+        beta=beta,
+        fusion_mode=fusion_mode,
+        seed=seed,
+    )
+    cache_key = _config_key(config)
+    if cache_key in _evaluation_cache:
+        return _evaluation_cache[cache_key]
 
     started = perf_counter()
-    subset_X = _X_test.head(limit)
-    true_arr = _y_test.head(limit).tolist()
+    indices = _window_indices(config)
+    subset_X = _X_test.iloc[indices].reset_index(drop=True)
+    true_arr = _y_test.iloc[indices].astype(str).tolist()
     model_input = _model_input(_base_model, subset_X)
     probabilities = _base_model.predict_proba(model_input)
     confidence = np.max(probabilities, axis=1)
@@ -609,9 +788,14 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
         probabilities,
         class_labels=_classes,
         rule_context=_get_symbolic_context(),
-        fusion_mode=SYMBOLIC_FUSION_MODE,
+        fusion_mode=config.fusion_mode,
+        alpha=config.alpha,
+        beta=config.beta,
+        confidence_threshold=0.55 + 0.30 * config.alpha,
+        strong_rule_threshold=0.72 + 0.20 * config.alpha,
     )
     ns_preds = np.asarray([str(label) for label in ns_preds])
+    proposed_probabilities = _fused_probabilities(probabilities, ns_preds, rule_traces, config)
 
     base_report = classification_report(true_arr, base_preds, labels=_classes, output_dict=True, zero_division=0)
     ns_report = classification_report(true_arr, ns_preds, labels=_classes, output_dict=True, zero_division=0)
@@ -633,19 +817,35 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
 
     rows = [
         {
-            "idx": i,
+            "idx": int(indices[i]),
             "true": true_arr[i],
             "baseline": base_preds[i],
             "proposed": ns_preds[i],
+            "final_label": ns_preds[i],
             "risk": "attack" if is_attack(ns_preds[i]) else "benign",
             "changed": bool(base_preds[i] != ns_preds[i]),
+            "changed_prediction": bool(base_preds[i] != ns_preds[i]),
+            "rule_strength": json_number(float(strengths[i]), 6),
+            "fired_rules": [
+                rule["rule_id"]
+                for rule in rule_traces[i]
+                if rule.get("rule_id") != "NONE"
+            ],
             "applied_rules": [
                 rule["rule_id"]
                 for rule in rule_traces[i]
                 if rule.get("rule_id") != "NONE" and bool(rule.get("applied"))
             ],
+            "explanation": next(
+                (
+                    rule.get("reason")
+                    for rule in rule_traces[i]
+                    if rule.get("rule_id") != "NONE" and bool(rule.get("applied"))
+                ),
+                next((rule.get("reason") for rule in rule_traces[i] if rule.get("rule_id") != "NONE"), ""),
+            ),
         }
-        for i in range(min(100, limit))
+        for i in range(min(100, config.window_size))
     ]
 
     active_rule_counts = analytics["per_rule_trigger_count"]
@@ -677,7 +877,8 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
     }
 
     public = {
-        "limit": limit,
+        "limit": config.window_size,
+        "parameters": _config_public(config),
         "metrics": live_metrics,
         "paper_summary": saved_paper_summary(),
         "window_metrics": {
@@ -691,18 +892,20 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
         "class_distribution": {
             "labels": labels,
             "values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(labels, fill_value=0).tolist()],
+            "baseline_values": [int(v) for v in pd.Series(base_preds).value_counts().reindex(labels, fill_value=0).tolist()],
+            "proposed_values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(labels, fill_value=0).tolist()],
         },
         "rule_hits": {"labels": list(active_rule_counts.keys()), "values": [int(v) for v in active_rule_counts.values()]},
         "rule_analytics": analytics,
         "novelty_proof": novelty_proof,
         "defense": {
-            "analysed_flows": limit,
+            "analysed_flows": config.window_size,
             "attack_flows": int(true_attack.sum()),
             "baseline_attack_predictions": int(base_attack.sum()),
             "detected_attack_flows": int(ns_attack.sum()),
             "containment_candidates": int(containment_candidates.sum()),
             "blocked_flows": int(high_confidence_blocks.sum()),
-            "mean_response_ms": json_number(elapsed_ms / max(1, limit), 6),
+            "mean_response_ms": json_number(elapsed_ms / max(1, config.window_size), 6),
             "policy": "Adaptive containment",
         },
         "evidence_sources": {
@@ -713,23 +916,35 @@ def _evaluate_window(limit=750) -> dict[str, Any]:
         "rows": rows,
     }
 
-    _evaluation_cache[limit] = {
+    _evaluation_cache[cache_key] = {
         "public": public,
+        "config": config,
+        "indices": indices,
         "subset_X": subset_X,
         "true_arr": true_arr,
         "probabilities": probabilities,
+        "proposed_probabilities": proposed_probabilities,
         "confidence": confidence,
         "base_preds": base_preds,
         "ns_preds": ns_preds,
         "rule_traces": rule_traces,
         "strengths": strengths,
     }
-    _analysis_cache[limit] = public
-    return _evaluation_cache[limit]
+    _analysis_cache[cache_key] = public
+    return _evaluation_cache[cache_key]
 
 
-def analyse_window(limit=750):
-    return _evaluate_window(limit)["public"]
+def analyse_window(
+    limit=750,
+    window_size=None,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+):
+    selected_window = window_size if window_size is not None else limit
+    return _evaluate_window(selected_window, flow_index, alpha, beta, fusion_mode, seed)["public"]
 
 
 def _chart_window_grid(limit: int) -> list[int]:
@@ -746,26 +961,45 @@ def _log_chart_step(logs: list[str], message: str) -> None:
     LOGGER.info(message)
 
 
-def chart_data(limit=2000):
+def chart_data(
+    limit=2000,
+    window_size=None,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+):
     load_resources()
-    requested_limit = limit
-    limit = _coerce_int(limit, default=2000, minimum=100, maximum=min(MAX_CHART_LIMIT, len(_X_test)))
-    if limit in _chart_cache:
-        return _chart_cache[limit]
+    requested_limit = window_size if window_size is not None else limit
+    config = evaluation_config(
+        window_size=requested_limit,
+        flow_index=flow_index,
+        alpha=alpha,
+        beta=beta,
+        fusion_mode=fusion_mode,
+        seed=seed,
+    )
+    if config.window_size < 100:
+        config = config._replace(window_size=100)
+    cache_key = _config_key(config)
+    if cache_key in _chart_cache:
+        return _chart_cache[cache_key]
 
     logs: list[str] = []
-    _log_chart_step(logs, f"Chart request received: requested_limit={requested_limit}, sanitized_limit={limit}.")
-    evaluated = _evaluate_window(limit)
+    _log_chart_step(logs, f"Chart request received with parameters {_config_public(config)}.")
+    evaluated = _evaluate_window(*config)
     analysis = evaluated["public"]
     true_arr = evaluated["true_arr"]
     probabilities = evaluated["probabilities"]
+    proposed_probabilities = evaluated["proposed_probabilities"]
     confidence = evaluated["confidence"]
     base_preds = evaluated["base_preds"]
     ns_preds = evaluated["ns_preds"]
     base_report = analysis["reports"]["baseline_mlp"]
     ns_report = analysis["reports"]["neuro_symbolic"]
 
-    windows = _chart_window_grid(limit)
+    windows = _chart_window_grid(config.window_size)
     existing_curve: list[float | None] = []
     proposed_curve: list[float | None] = []
     f1_baseline_curve: list[float | None] = []
@@ -774,7 +1008,14 @@ def chart_data(limit=2000):
     attack_recall_delta_points_curve: list[float | None] = []
     prediction_change_rate_curve: list[float | None] = []
     for w in windows:
-        window_public = _evaluate_window(w)["public"]
+        window_public = _evaluate_window(
+            w,
+            config.flow_index,
+            config.alpha,
+            config.beta,
+            config.fusion_mode,
+            config.seed,
+        )["public"]
         window_eval = window_public["window_metrics"]
         window_analytics = window_public["rule_analytics"]
         existing_curve.append(window_eval["baseline_mlp"][0])
@@ -790,16 +1031,22 @@ def chart_data(limit=2000):
     )
 
     y_bin = label_binarize(true_arr, classes=_classes)
-    try:
-        fpr, tpr, _ = roc_curve(y_bin.ravel(), probabilities.ravel())
+
+    def roc_payload(score_matrix: np.ndarray) -> dict[str, Any]:
+        fpr, tpr, _ = roc_curve(y_bin.ravel(), score_matrix.ravel())
         roc_auc = float(auc(fpr, tpr))
         step = max(1, len(fpr) // 80)
-        roc_points = {
+        return {
             "auc": json_number(roc_auc, 6),
             "points": [{"x": json_number(x, 5), "y": json_number(y, 5)} for x, y in zip(fpr[::step], tpr[::step])],
         }
+
+    try:
+        roc_points = roc_payload(probabilities)
+        proposed_roc_points = roc_payload(proposed_probabilities)
     except Exception:
         roc_points = {"auc": None, "points": []}
+        proposed_roc_points = {"auc": None, "points": []}
 
     hist, edges = np.histogram(confidence, bins=np.linspace(0, 1, 11))
     true_attack = np.asarray([is_attack(label) for label in true_arr], dtype=bool)
@@ -815,10 +1062,31 @@ def chart_data(limit=2000):
     )
     _log_chart_step(logs, "Per-class F1 and error rates computed from live classification reports for the selected window.")
 
-    _chart_cache[limit] = {
-        "limit": limit,
+    baseline_error = [
+        json_number(
+            sum(t == label and p != label for t, p in zip(true_arr, base_preds)) / max(1, sum(t == label for t in true_arr)),
+            6,
+        )
+        for label in _classes
+    ]
+    proposed_error = [
+        json_number(
+            sum(t == label and p != label for t, p in zip(true_arr, ns_preds)) / max(1, sum(t == label for t in true_arr)),
+            6,
+        )
+        for label in _classes
+    ]
+    metric_delta = [
+        json_number(ns - base, 6)
+        for base, ns in zip(analysis["window_metrics"]["baseline_mlp"], analysis["window_metrics"]["neuro_symbolic"])
+    ]
+    recall_gain = analysis["rule_analytics"]["attack_class_recall_delta"]
+
+    _chart_cache[cache_key] = {
+        "limit": config.window_size,
+        "parameters": _config_public(config),
         "debug": {
-            "input_parameters": {"requested_limit": requested_limit, "sanitized_limit": limit},
+            "input_parameters": {"requested_limit": requested_limit, **_config_public(config)},
             "api_output_summary": {
                 "curve_points": len(windows),
                 "classes": len(_classes),
@@ -833,6 +1101,9 @@ def chart_data(limit=2000):
                 "detection_counts",
                 "class_error_rate",
                 "rule_hits",
+                "difference_chart",
+                "attack_recall_gain",
+                "roc_curve",
             ],
         },
         "metric_comparison": {
@@ -885,32 +1156,67 @@ def chart_data(limit=2000):
         },
         "class_error_rate": {
             "labels": _classes,
-            "values": [
-                json_number(
-                    sum(t == label and p != label for t, p in zip(true_arr, ns_preds)) / max(1, sum(t == label for t in true_arr)),
-                    6,
-                )
-                for label in _classes
-            ],
+            "values": proposed_error,
+            "baseline_values": baseline_error,
+            "proposed_values": proposed_error,
         },
-        "roc_curve": roc_points,
+        "roc_curve": {
+            "baseline": roc_points,
+            "proposed": proposed_roc_points,
+            "auc": proposed_roc_points["auc"],
+            "points": proposed_roc_points["points"],
+        },
         "class_distribution": analysis["class_distribution"],
         "rule_hits": analysis["rule_hits"],
+        "difference_chart": {
+            "labels": ["Accuracy", "Precision", "Recall", "F1"],
+            "values": metric_delta,
+            "source": "live neuro-symbolic metrics minus live baseline MLP metrics",
+        },
+        "attack_recall_gain": {
+            "labels": [row["class"] for row in recall_gain],
+            "values": [row["recall_delta"] for row in recall_gain],
+            "baseline": [row["baseline_recall"] for row in recall_gain],
+            "proposed": [row["neuro_symbolic_recall"] for row in recall_gain],
+            "source": "per-class recall from live classification reports",
+        },
+        "rule_trigger_counts": {
+            "labels": analysis["rule_hits"]["labels"],
+            "values": analysis["rule_hits"]["values"],
+            "source": "live rule trace counts for selected parameters",
+        },
         "rule_analytics": analysis["rule_analytics"],
         "computation_log": logs,
     }
-    return _chart_cache[limit]
+    return _chart_cache[cache_key]
 
 
-def ablation_data(limit=1000):
+def ablation_data(
+    limit=1000,
+    window_size=None,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+):
     load_resources()
-    limit = _coerce_int(limit, default=1000, minimum=MIN_ANALYSIS_LIMIT, maximum=min(MAX_ANALYSIS_LIMIT, len(_X_test)))
-    data = analyse_window(limit)
+    selected_window = window_size if window_size is not None else limit
+    config = evaluation_config(selected_window, flow_index, alpha, beta, fusion_mode, seed)
+    data = analyse_window(
+        window_size=config.window_size,
+        flow_index=config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
     labels = data["window_metrics"]["labels"]
     baseline = data["window_metrics"]["baseline_mlp"]
     neuro_symbolic = data["window_metrics"]["neuro_symbolic"]
     return {
-        "limit": limit,
+        "limit": config.window_size,
+        "parameters": _config_public(config),
         "labels": labels,
         "systems": [
             {"name": "Baseline MLP", "metrics": baseline},
@@ -924,7 +1230,7 @@ def ablation_data(limit=1000):
     }
 
 
-def novelty_data(limit=2000, alpha=0.10):
+def novelty_data(limit=2000, alpha=0.10, flow_index=0, seed=DEFAULT_SEED):
     """Reliability/novelty evidence for a publishable trustworthy IDS story.
 
     Uses the available processed test set as a deterministic demonstration split:
@@ -934,14 +1240,18 @@ def novelty_data(limit=2000, alpha=0.10):
     """
     load_resources()
     limit = _coerce_int(limit, default=2000, minimum=200, maximum=min(MAX_CHART_LIMIT, len(_X_test)))
+    flow_idx = _coerce_int(flow_index, default=0, minimum=0, maximum=len(_X_test) - 1)
+    clean_seed = _coerce_int(seed, default=DEFAULT_SEED, minimum=0, maximum=2_147_483_647)
     alpha_value = float(alpha) if alpha is not None else 0.10
     alpha_value = min(0.40, max(0.01, alpha_value))
-    cache_key = (limit, round(alpha_value, 4))
+    cache_key = (limit, round(alpha_value, 4), flow_idx, clean_seed)
     if cache_key in _novelty_cache:
         return _novelty_cache[cache_key]
 
-    subset_X = _X_test.head(limit)
-    subset_y = _y_test.head(limit).tolist()
+    novelty_config = evaluation_config(limit, flow_idx, DEFAULT_ALPHA, DEFAULT_BETA, SYMBOLIC_FUSION_MODE, clean_seed)
+    indices = _window_indices(novelty_config)
+    subset_X = _X_test.iloc[indices].reset_index(drop=True)
+    subset_y = _y_test.iloc[indices].astype(str).tolist()
     model_input = _model_input(_base_model, subset_X)
     probs = _base_model.predict_proba(model_input)
     preds = [str(_classes[int(np.argmax(row))]) for row in probs]
@@ -1002,6 +1312,7 @@ def novelty_data(limit=2000, alpha=0.10):
     _novelty_cache[cache_key] = {
         "limit": limit,
         "alpha": json_number(alpha_value, 4),
+        "parameters": {"window_size": limit, "flow_index": flow_idx, "seed": clean_seed, "alpha": json_number(alpha_value, 4)},
         "uncertainty": {
             "mean_confidence": json_number(np.mean(confidence), 6),
             "mean_entropy": json_number(np.mean(entropy), 6),
@@ -1062,31 +1373,56 @@ def _file_signature(path: str | Path) -> dict[str, Any]:
     }
 
 
-def run_all(limit=750, alpha=0.10, flow_idx=0) -> dict[str, Any]:
+def run_all(
+    limit=750,
+    alpha=DEFAULT_ALPHA,
+    flow_idx=0,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+) -> dict[str, Any]:
     """Single-click recomputation entry point for the dashboard."""
     load_resources()
-    requested = {"limit": limit, "alpha": alpha, "flow_idx": flow_idx}
-    clean_limit = _coerce_int(limit, default=750, minimum=MIN_ANALYSIS_LIMIT, maximum=min(MAX_ANALYSIS_LIMIT, len(_y_test) if _y_test is not None else MAX_ANALYSIS_LIMIT))
-    clean_alpha = min(0.40, max(0.01, float(alpha) if alpha is not None else 0.10))
-    clean_flow_idx = _coerce_int(flow_idx, default=0, minimum=0, maximum=len(_X_test) - 1 if _X_test is not None else 0)
+    requested = {"limit": limit, "alpha": alpha, "beta": beta, "flow_idx": flow_idx, "fusion_mode": fusion_mode, "seed": seed}
+    config = evaluation_config(limit, flow_idx, alpha, beta, fusion_mode, seed)
+    novelty_alpha = min(0.40, max(0.01, config.alpha))
 
     LOGGER.info("Run-all requested with %s", requested)
     started = perf_counter()
     _clear_caches()
     overview = overview_data()
-    research = analyse_window(clean_limit)
-    charts = chart_data(clean_limit)
-    novelty = novelty_data(clean_limit, clean_alpha)
-    defense = analyse_defense(clean_flow_idx)
+    research = analyse_window(
+        window_size=config.window_size,
+        flow_index=config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
+    charts = chart_data(
+        window_size=config.window_size,
+        flow_index=config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
+    novelty = novelty_data(config.window_size, novelty_alpha, flow_index=config.flow_index, seed=config.seed)
+    defense = analyse_defense(
+        config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
     backend = backend_status()
     elapsed_ms = (perf_counter() - started) * 1000.0
 
     debug = {
         "input_parameters": {
             **requested,
-            "sanitized_limit": clean_limit,
-            "sanitized_alpha": json_number(clean_alpha, 4),
-            "sanitized_flow_idx": clean_flow_idx,
+            **_config_public(config),
+            "novelty_alpha": json_number(novelty_alpha, 4),
         },
         "api_output_summary": {
             "overview_samples": overview["total_samples"],
@@ -1172,8 +1508,8 @@ def backend_status():
             "paper_summary": "loaded from results/metrics.json only when explicitly requested",
             "publication_package": "generated artifacts under results/publication_package and paper/generated",
         },
-        "cached_analysis_windows": sorted(list(_analysis_cache.keys())),
-        "cached_chart_windows": sorted(list(_chart_cache.keys())),
+        "cached_analysis_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_analysis_cache.keys())],
+        "cached_chart_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_chart_cache.keys())],
         "cached_novelty_windows": [list(key) for key in sorted(_novelty_cache.keys())],
         "incident_count": len(_incident_store),
         "note": "Frontend data is served from Flask endpoints backed by model and CSV resources.",

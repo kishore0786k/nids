@@ -25,13 +25,26 @@ def _backend_get(path: str, **params):
     if path == "/api/overview":
         return engine.overview_data()
     if path == "/api/research":
-        return engine.analyse_window(params.get("limit", 750))
+        return engine.analyse_window(**params)
     if path == "/api/charts":
-        return engine.chart_data(params.get("limit", 750))
+        return engine.chart_data(**params)
     if path == "/api/single-flow":
-        return engine.predict_row(params.get("idx", 0))
+        return engine.predict_row(
+            params.get("flow_index", params.get("idx", 0)),
+            alpha=params.get("alpha", engine.DEFAULT_ALPHA),
+            beta=params.get("beta"),
+            fusion_mode=params.get("fusion_mode", engine.SYMBOLIC_FUSION_MODE),
+            seed=params.get("seed", engine.DEFAULT_SEED),
+        )
     if path == "/api/comparison":
-        data = engine.analyse_window(params.get("n", 200))
+        data = engine.analyse_window(
+            window_size=params.get("window_size", params.get("n", 200)),
+            flow_index=params.get("flow_index", 0),
+            alpha=params.get("alpha", engine.DEFAULT_ALPHA),
+            beta=params.get("beta"),
+            fusion_mode=params.get("fusion_mode", engine.SYMBOLIC_FUSION_MODE),
+            seed=params.get("seed", engine.DEFAULT_SEED),
+        )
         return {
             "n_samples": data["limit"],
             "base_accuracy": data["window_metrics"]["baseline_mlp"][0],
@@ -68,10 +81,21 @@ st.caption("Live backend evidence from model predictions, symbolic rules, and NF
 overview = get_backend_json("/api/overview")
 max_index = int(overview["max_index"])
 window = st.sidebar.slider("Evaluation window", 100, 2000, 750, step=50)
+alpha = st.sidebar.slider("Alpha neural weight", 0.05, 0.95, 0.65, step=0.05)
+beta = st.sidebar.number_input("Beta rule weight", 0.0, 0.95, value=round(1.0 - alpha, 2), step=0.05)
+fusion_mode = st.sidebar.radio("Fusion mode", ["soft", "hard"], horizontal=True)
+seed = st.sidebar.number_input("Seed", 0, 2_147_483_647, value=engine.DEFAULT_SEED, step=1)
 page = st.sidebar.selectbox("Mode", ["Overview", "Single-Flow Analysis", "Model Comparison"])
+params = {
+    "window_size": window,
+    "alpha": alpha,
+    "beta": beta,
+    "fusion_mode": fusion_mode,
+    "seed": int(seed),
+}
 
-research = get_backend_json("/api/research", limit=window)
-charts = get_backend_json("/api/charts", limit=window)
+research = get_backend_json("/api/research", **params)
+charts = get_backend_json("/api/charts", **params)
 
 if page == "Overview":
     baseline = research["window_metrics"]["baseline_mlp"]
@@ -100,6 +124,15 @@ if page == "Overview":
         }
     )
     st.plotly_chart(px.bar(counts, x="Class", y="Samples"), use_container_width=True)
+    if "baseline_values" in research["class_distribution"]:
+        dist = pd.DataFrame(
+            {
+                "Class": research["class_distribution"]["labels"],
+                "Baseline": research["class_distribution"]["baseline_values"],
+                "Proposed": research["class_distribution"]["proposed_values"],
+            }
+        ).melt(id_vars="Class", var_name="Model", value_name="Samples")
+        st.plotly_chart(px.bar(dist, x="Class", y="Samples", color="Model", barmode="group"), use_container_width=True)
 
     curve = pd.DataFrame(
         {
@@ -112,13 +145,15 @@ if page == "Overview":
 
 elif page == "Single-Flow Analysis":
     idx = st.number_input("Test index", 0, max_index, 0, step=1)
-    flow = get_backend_json("/api/single-flow", idx=idx)
+    flow = get_backend_json("/api/single-flow", **{**params, "flow_index": idx, "idx": idx})
 
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**True label:** `{flow['true_label']}`")
         st.markdown(f"**Baseline MLP prediction:** `{flow['base_pred']}`")
         st.markdown(f"**Neuro-symbolic final label:** `{flow['ns_label']}`")
+        st.markdown(f"**Changed prediction:** `{flow['changed_prediction']}`")
+        st.markdown(f"**Rule strength:** `{flow['rule_strength']}`")
         st.markdown(f"**Confidence:** `{pct(flow['confidence'])}`")
         st.markdown(f"**Defense action:** {flow['defense']['action']}")
         st.dataframe(pd.DataFrame(flow["fired_rules"]), use_container_width=True)
@@ -132,7 +167,7 @@ elif page == "Single-Flow Analysis":
 
 else:
     n_samples = st.slider("Number of test samples", 50, min(2000, max_index + 1), 200, step=50)
-    comparison = get_backend_json("/api/comparison", n=n_samples)
+    comparison = get_backend_json("/api/comparison", **{**params, "window_size": n_samples, "n": n_samples})
     st.metric("Baseline MLP accuracy", pct(comparison["base_accuracy"]))
     st.metric("Neuro-symbolic accuracy", pct(comparison["ns_accuracy"]))
     st.dataframe(pd.DataFrame(comparison["table"]), use_container_width=True)

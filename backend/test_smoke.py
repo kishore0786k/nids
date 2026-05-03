@@ -17,6 +17,11 @@ class NidsApiRegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:500])
         return response.get_json()
 
+    def get_error(self, endpoint, status=400):
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, status, msg=response.get_data(as_text=True)[:500])
+        return response.get_json()
+
     def post_json(self, endpoint, payload):
         response = self.client.post(endpoint, json=payload)
         self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True)[:500])
@@ -75,10 +80,12 @@ class NidsApiRegressionTests(unittest.TestCase):
         self.assertIn("saved-paper-summary", data["paper_summary"]["source"])
 
     def test_run_all_recomputes_full_dashboard_payload(self):
-        result = self.post_json("/api/run-all", {"limit": 750, "alpha": 0.1, "flow_idx": 0})
+        result = self.post_json("/api/run-all", {"window_size": 750, "alpha": 0.65, "beta": 0.35, "flow_index": 0, "fusion_mode": "soft", "seed": 42})
         self.assertTrue(result["ok"])
         self.assertEqual(result["research"]["limit"], 750)
         self.assertEqual(result["charts"]["limit"], 750)
+        self.assertEqual(result["research"]["parameters"]["alpha"], 0.65)
+        self.assertEqual(result["research"]["parameters"]["fusion_mode"], "soft")
         self.assertIn("debug", result)
         self.assertIn("debug", result["charts"])
         self.assertGreater(result["debug"]["api_output_summary"]["rule_trigger_count"], 0)
@@ -101,15 +108,40 @@ class NidsApiRegressionTests(unittest.TestCase):
             self.assertNotIn(literal, text)
         self.assertIn("get_backend_json", text)
 
-    def test_invalid_inputs_are_sanitized(self):
-        flow = self.get_json("/api/single-flow?idx=not-a-number")
-        self.assertEqual(flow["index"], 0)
-        research = self.get_json("/api/research?limit=bad")
-        self.assertGreaterEqual(research["limit"], 50)
-        charts = self.get_json("/api/charts?limit=-500")
-        self.assertGreaterEqual(charts["limit"], 100)
-        novelty = self.get_json("/api/novelty?limit=300&alpha=not-a-number")
-        self.assertEqual(novelty["alpha"], 0.1)
+    def test_invalid_inputs_are_rejected(self):
+        self.assertEqual(self.get_error("/api/single-flow?idx=not-a-number")["error"], "invalid_request")
+        self.assertEqual(self.get_error("/api/research?limit=bad")["error"], "invalid_request")
+        self.assertEqual(self.get_error("/api/charts?window_size=-500")["error"], "invalid_request")
+        self.assertEqual(self.get_error("/api/novelty?limit=300&alpha=not-a-number")["error"], "invalid_request")
+        self.assertEqual(self.get_error("/api/charts?fusion_mode=maybe")["error"], "invalid_request")
+
+    def test_live_parameters_change_metrics_and_charts(self):
+        base = self.get_json("/api/charts?window_size=750&flow_index=0&alpha=0.65&beta=0.35&fusion_mode=soft&seed=42")
+        alpha_changed = self.get_json("/api/charts?window_size=750&flow_index=0&alpha=0.90&beta=0.10&fusion_mode=soft&seed=42")
+        seed_changed = self.get_json("/api/charts?window_size=750&flow_index=0&alpha=0.65&beta=0.35&fusion_mode=soft&seed=99")
+        flow_changed = self.get_json("/api/charts?window_size=750&flow_index=10&alpha=0.65&beta=0.35&fusion_mode=soft&seed=42")
+
+        self.assertNotEqual(base["metric_comparison"]["proposed"], alpha_changed["metric_comparison"]["proposed"])
+        self.assertNotEqual(base["class_distribution"]["proposed_values"], seed_changed["class_distribution"]["proposed_values"])
+        self.assertNotEqual(base["detection_counts"]["values"], flow_changed["detection_counts"]["values"])
+        self.assertIn("difference_chart", base)
+        self.assertIn("attack_recall_gain", base)
+        self.assertNotEqual(base["roc_curve"]["baseline"]["points"], base["roc_curve"]["proposed"]["points"])
+
+    def test_proposed_predictions_are_distinct_and_improve_default_target(self):
+        data = self.get_json("/api/research?window_size=750&flow_index=0&alpha=0.65&beta=0.35&fusion_mode=soft&seed=42")
+        analytics = data["rule_analytics"]
+        baseline = data["window_metrics"]["baseline_mlp"]
+        proposed = data["window_metrics"]["neuro_symbolic"]
+        self.assertNotEqual(baseline, proposed)
+        self.assertGreater(analytics["prediction_change_count"], 0)
+        self.assertTrue(
+            proposed[0] > baseline[0]
+            or proposed[3] > baseline[3]
+            or analytics["binary_attack_recall_delta"] > 0
+        )
+        self.assertTrue(any(row["changed_prediction"] for row in data["rows"]))
+        self.assertIn("final_label", data["rows"][0])
 
     def test_defense_lifecycle(self):
         analysed = self.post_json("/api/defense/analyse", {"idx": 1})

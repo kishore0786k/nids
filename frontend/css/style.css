@@ -118,6 +118,13 @@ button { cursor: pointer; }
   font-size: 13px;
 }
 .topbar-actions, .control-row, .summary-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.compact-controls {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,.025);
+}
+.compact-controls label, .toggle-label { color: var(--muted); font-size: 12px; font-weight: 700; }
 
 .btn, .icon-btn {
   border: 1px solid var(--line);
@@ -285,6 +292,7 @@ button { cursor: pointer; }
 }
 
 .control-row input[type="range"] { width: 220px; accent-color: var(--cyan); }
+.compact-controls input[type="range"] { width: 112px; }
 .control-row input[type="number"] {
   width: 120px;
   padding: 9px 10px;
@@ -293,6 +301,8 @@ button { cursor: pointer; }
   color: var(--text);
   background: rgba(255,255,255,.035);
 }
+.compact-controls input[type="number"] { width: 76px; padding: 7px 8px; }
+.compact-controls input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--cyan); }
 
 .matrix-wrap { overflow: auto; max-height: 430px; }
 .matrix-large { max-height: 70vh; }

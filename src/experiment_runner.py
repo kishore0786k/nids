@@ -19,7 +19,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 
 from src.baseline_models import get_models
-from src.neuro_symbolic import apply_symbolic_rules, build_symbolic_context
+from src.neuro_symbolic import apply_symbolic_rules_batch, build_symbolic_context
 from src.project_paths import PUBLICATION_EXPERIMENT_PATH, TEST_PATH, TRAIN_PATH
 
 
@@ -34,7 +34,7 @@ def _set_reproducible_params(model: Any, seed: int = 42) -> Any:
     if "random_state" in params:
         updates["random_state"] = seed
     if "n_jobs" in params:
-        updates["n_jobs"] = -1
+        updates["n_jobs"] = 1
     if updates and hasattr(model, "set_params"):
         model.set_params(**updates)
     return model
@@ -67,6 +67,13 @@ def load_dataset(quick_limit: int | None = None) -> tuple[pd.DataFrame, pd.Serie
 def parse_seeds(value: str) -> list[int]:
     seeds = [int(part.strip()) for part in value.split(",") if part.strip()]
     return seeds or [42]
+
+
+def parse_windows(value: str | None, default: int | None = None) -> list[int | None]:
+    if not value:
+        return [default]
+    windows = [int(part.strip()) for part in value.split(",") if part.strip()]
+    return windows or [default]
 
 
 def metric_summary(y_true: Sequence[str], y_pred: Sequence[str]) -> dict[str, float]:
@@ -127,28 +134,23 @@ def evaluate_neuro_symbolic(
 
     probabilities = model.predict_proba(X_test)
     base_predictions = np.asarray([class_labels[int(idx)] for idx in np.argmax(probabilities, axis=1)])
-    ns_predictions: list[str] = []
-    rule_traces: list[list[dict[str, Any]]] = []
-    strengths: list[float] = []
-
-    for row_idx, base_label in enumerate(base_predictions):
-        if rules_enabled:
-            final_label, fired_rules, strength = apply_symbolic_rules(
-                X_test.iloc[row_idx],
-                base_label,
-                predicted_probs=probabilities[row_idx],
-                class_labels=class_labels,
-                rule_context=rule_context,
-                fusion_mode=fusion_mode,
-                alpha=alpha,
-            )
-        else:
-            final_label, fired_rules, strength = base_label, [], 0.0
-        ns_predictions.append(str(final_label))
-        rule_traces.append(fired_rules)
-        strengths.append(float(strength))
-
-    ns_predictions_arr = np.asarray(ns_predictions)
+    if rules_enabled:
+        ns_predictions_arr, rule_traces, strengths = apply_symbolic_rules_batch(
+            X_test,
+            base_predictions,
+            probabilities,
+            class_labels=class_labels,
+            rule_context=rule_context,
+            fusion_mode=fusion_mode,
+            alpha=alpha,
+            confidence_threshold=0.55 + 0.30 * alpha,
+            strong_rule_threshold=0.72 + 0.20 * alpha,
+        )
+        ns_predictions_arr = np.asarray([str(label) for label in ns_predictions_arr])
+    else:
+        ns_predictions_arr = base_predictions.copy()
+        rule_traces = [[{"rule_id": "NONE", "applied": False}] for _ in range(len(base_predictions))]
+        strengths = [0.0 for _ in range(len(base_predictions))]
     diagnostics = rule_diagnostics(
         y_test=y_test,
         base_predictions=base_predictions,
@@ -436,12 +438,17 @@ def run_experiment(
     fusion_mode: str = "soft",
     alpha: float = 0.65,
     quick_limit: int | None = None,
+    window_size: int | None = None,
     seed: int = 42,
 ) -> dict[str, Any]:
     print("Loading processed dataset...")
     X_train, y_train, X_test, y_test = load_dataset(quick_limit=quick_limit)
     print(f"Train rows={len(X_train)} | Test rows={len(X_test)} | Features={X_train.shape[1]}")
     print(f"Seed={seed}")
+    if window_size:
+        X_test = X_test.head(int(window_size)).reset_index(drop=True)
+        y_test = y_test.head(int(window_size)).reset_index(drop=True)
+        print(f"Evaluation window={len(X_test)}")
 
     models = get_models()
     trained_models: dict[str, Any] = {}
@@ -551,6 +558,7 @@ def run_experiment(
             "fusion_mode": fusion_mode,
             "alpha": alpha,
             "quick_limit": quick_limit,
+            "window_size": int(window_size) if window_size else int(len(X_test)),
             "seed": seed,
         },
         "metrics": {name: value["metrics"] for name, value in results.items() if "metrics" in value},
@@ -580,21 +588,55 @@ def run_experiment(
     return results
 
 
-def run_multi_seed(seeds: Sequence[int], fusion_mode: str, alpha: float, quick_limit: int | None) -> None:
+def run_multi_seed(
+    seeds: Sequence[int],
+    windows: Sequence[int | None],
+    fusion_mode: str,
+    alpha: float,
+    quick_limit: int | None,
+) -> dict[str, Any]:
     rows = []
-    for seed in seeds:
-        results = run_experiment(fusion_mode=fusion_mode, alpha=alpha, quick_limit=quick_limit, seed=seed)
-        for model_name in ("RandomForest", "MLP", "NeuroSymbolic"):
-            row = {"seed": seed, "model": model_name}
-            row.update(results[model_name]["metrics"])
-            rows.append(row)
+    run_outputs = []
+    for window in windows:
+        for seed in seeds:
+            results = run_experiment(
+                fusion_mode=fusion_mode,
+                alpha=alpha,
+                quick_limit=quick_limit,
+                window_size=window,
+                seed=seed,
+            )
+            run_outputs.append({"seed": seed, "window_size": window, "results": results})
+            for model_name in ("RandomForest", "MLP", "NeuroSymbolic"):
+                row = {"seed": seed, "window_size": window, "model": model_name}
+                row.update(results[model_name]["metrics"])
+                diag = results[model_name].get("diagnostics", {})
+                row["prediction_change_count"] = diag.get("prediction_change_count", 0)
+                row["binary_attack_recall_delta"] = diag.get("binary_attack_recall_delta", 0.0)
+                rows.append(row)
 
     summary = pd.DataFrame(rows)
     summary.to_csv(RESULTS_PATH.parent / "multiseed_metrics.csv", index=False)
-    aggregate = summary.groupby("model")[["accuracy", "precision", "recall", "f1"]].agg(["mean", "std"]).round(6)
+    aggregate = summary.groupby(["window_size", "model"], dropna=False)[["accuracy", "precision", "recall", "f1", "binary_attack_recall_delta"]].agg(["mean", "std"]).round(6)
     aggregate.to_csv(RESULTS_PATH.parent / "multiseed_summary.csv")
+    aggregate_json = {
+        "protocol": {
+            "seeds": list(seeds),
+            "windows": [int(w) if w is not None else None for w in windows],
+            "fusion_mode": fusion_mode,
+            "alpha": alpha,
+            "quick_limit": quick_limit,
+        },
+        "runs": rows,
+        "mean_std": json.loads(aggregate.to_json()),
+    }
+    (RESULTS_PATH.parent / "publication_experiment_multirun.json").write_text(
+        json.dumps(aggregate_json, indent=2),
+        encoding="utf-8",
+    )
     print("\n=== Multi-Seed Summary ===")
     print(aggregate.to_string())
+    return aggregate_json
 
 
 if __name__ == "__main__":
@@ -603,9 +645,17 @@ if __name__ == "__main__":
     parser.add_argument("--alpha", type=float, default=0.65, help="Neural probability weight for soft fusion.")
     parser.add_argument("--quick-limit", type=int, default=None, help="Optional small test window for fast smoke runs.")
     parser.add_argument("--seeds", default="42", help="Comma-separated random seeds, e.g. 42,43,44.")
+    parser.add_argument("--windows", default=None, help="Comma-separated evaluation windows, e.g. 250,500,1000.")
     args = parser.parse_args()
     seeds = parse_seeds(args.seeds)
-    if len(seeds) == 1:
-        run_experiment(fusion_mode=args.fusion_mode, alpha=args.alpha, quick_limit=args.quick_limit, seed=seeds[0])
+    windows = parse_windows(args.windows, args.quick_limit)
+    if len(seeds) == 1 and len(windows) == 1:
+        run_experiment(
+            fusion_mode=args.fusion_mode,
+            alpha=args.alpha,
+            quick_limit=args.quick_limit,
+            window_size=windows[0],
+            seed=seeds[0],
+        )
     else:
-        run_multi_seed(seeds=seeds, fusion_mode=args.fusion_mode, alpha=args.alpha, quick_limit=args.quick_limit)
+        run_multi_seed(seeds=seeds, windows=windows, fusion_mode=args.fusion_mode, alpha=args.alpha, quick_limit=args.quick_limit)

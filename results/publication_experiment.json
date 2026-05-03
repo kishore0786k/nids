@@ -2,655 +2,645 @@
   "protocol": {
     "train_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\data\\train_processed.csv",
     "test_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT_Streamlit\\data\\test_processed.csv",
-    "train_rows": 1200,
-    "test_rows": 300,
+    "train_rows": 480,
+    "test_rows": 120,
     "fusion_mode": "soft",
     "alpha": 0.65,
-    "quick_limit": 300,
+    "quick_limit": 120,
+    "window_size": 120,
     "seed": 42
   },
   "metrics": {
     "RandomForest": {
-      "accuracy": 0.8766666666666667,
-      "precision": 0.8811462048066749,
-      "recall": 0.8715068379146206,
-      "f1": 0.874843858677837
+      "accuracy": 0.825,
+      "precision": 0.8354511035183305,
+      "recall": 0.8175736961451248,
+      "f1": 0.8229071405340413
     },
     "MLP": {
-      "accuracy": 0.8266666666666667,
-      "precision": 0.8328608813432593,
-      "recall": 0.8189986494666904,
-      "f1": 0.8223920407994044
+      "accuracy": 0.7666666666666667,
+      "precision": 0.7894557823129251,
+      "recall": 0.7721371882086168,
+      "f1": 0.7656777721659489
     },
     "MLP_NoRules": {
-      "accuracy": 0.8266666666666667,
-      "precision": 0.8328608813432593,
-      "recall": 0.8189986494666904,
-      "f1": 0.8223920407994044
+      "accuracy": 0.7666666666666667,
+      "precision": 0.7894557823129251,
+      "recall": 0.7721371882086168,
+      "f1": 0.7656777721659489
     },
     "NeuroSymbolic_Hard": {
-      "accuracy": 0.83,
-      "precision": 0.8360527413020366,
-      "recall": 0.8226616531296941,
-      "f1": 0.8257207080745231
+      "accuracy": 0.7666666666666667,
+      "precision": 0.7951493640934635,
+      "recall": 0.7721371882086168,
+      "f1": 0.7666603874342783
     },
     "NeuroSymbolic": {
-      "accuracy": 0.83,
-      "precision": 0.8360527413020366,
-      "recall": 0.8226616531296941,
-      "f1": 0.8257207080745231
+      "accuracy": 0.7666666666666667,
+      "precision": 0.7951493640934635,
+      "recall": 0.7721371882086168,
+      "f1": 0.7666603874342783
     }
   },
   "classification_reports": {
     "RandomForest": {
       "Backdoor": {
         "precision": 1.0,
-        "recall": 0.975,
-        "f1-score": 0.9873417721518988,
-        "support": 40.0
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9629629629629629,
+        "support": 14.0
       },
       "Benign": {
-        "precision": 0.8863636363636364,
-        "recall": 0.8863636363636364,
-        "f1-score": 0.8863636363636364,
-        "support": 44.0
+        "precision": 0.9230769230769231,
+        "recall": 0.75,
+        "f1-score": 0.8275862068965517,
+        "support": 16.0
       },
       "DoS/DDoS": {
-        "precision": 0.967741935483871,
-        "recall": 0.8333333333333334,
-        "f1-score": 0.8955223880597015,
-        "support": 36.0
+        "precision": 0.7857142857142857,
+        "recall": 0.7333333333333333,
+        "f1-score": 0.7586206896551724,
+        "support": 15.0
       },
       "Injection": {
-        "precision": 0.6923076923076923,
-        "recall": 0.6585365853658537,
-        "f1-score": 0.675,
-        "support": 41.0
+        "precision": 0.6470588235294118,
+        "recall": 0.6111111111111112,
+        "f1-score": 0.6285714285714286,
+        "support": 18.0
       },
       "Password": {
-        "precision": 0.825,
-        "recall": 0.8461538461538461,
-        "f1-score": 0.8354430379746836,
-        "support": 39.0
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 15.0
       },
       "Scanning": {
         "precision": 1.0,
-        "recall": 0.9795918367346939,
-        "f1-score": 0.9896907216494846,
-        "support": 49.0
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 22.0
       },
       "XSS/MITM": {
-        "precision": 0.7966101694915254,
-        "recall": 0.9215686274509803,
-        "f1-score": 0.8545454545454545,
-        "support": 51.0
+        "precision": 0.6923076923076923,
+        "recall": 0.9,
+        "f1-score": 0.782608695652174,
+        "support": 20.0
       },
-      "accuracy": 0.8766666666666667,
+      "accuracy": 0.825,
       "macro avg": {
-        "precision": 0.8811462048066749,
-        "recall": 0.8715068379146206,
-        "f1-score": 0.874843858677837,
-        "support": 300.0
+        "precision": 0.8354511035183305,
+        "recall": 0.8175736961451248,
+        "f1-score": 0.8229071405340413,
+        "support": 120.0
       },
       "weighted avg": {
-        "precision": 0.8800848123536753,
-        "recall": 0.8766666666666667,
-        "f1-score": 0.8768880629329361,
-        "support": 300.0
+        "precision": 0.833734647705236,
+        "recall": 0.825,
+        "f1-score": 0.8255719230331925,
+        "support": 120.0
       }
     },
     "MLP": {
       "Backdoor": {
-        "precision": 1.0,
-        "recall": 0.975,
-        "f1-score": 0.9873417721518988,
-        "support": 40.0
+        "precision": 0.9285714285714286,
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9285714285714286,
+        "support": 14.0
       },
       "Benign": {
-        "precision": 0.85,
-        "recall": 0.7727272727272727,
-        "f1-score": 0.8095238095238095,
-        "support": 44.0
+        "precision": 0.9166666666666666,
+        "recall": 0.6875,
+        "f1-score": 0.7857142857142857,
+        "support": 16.0
       },
       "DoS/DDoS": {
-        "precision": 0.7027027027027027,
-        "recall": 0.7222222222222222,
-        "f1-score": 0.7123287671232876,
-        "support": 36.0
+        "precision": 0.5,
+        "recall": 0.9333333333333333,
+        "f1-score": 0.6511627906976745,
+        "support": 15.0
       },
       "Injection": {
-        "precision": 0.6764705882352942,
-        "recall": 0.5609756097560976,
-        "f1-score": 0.6133333333333333,
-        "support": 41.0
+        "precision": 0.6666666666666666,
+        "recall": 0.5555555555555556,
+        "f1-score": 0.6060606060606061,
+        "support": 18.0
       },
       "Password": {
-        "precision": 0.9142857142857143,
-        "recall": 0.8205128205128205,
-        "f1-score": 0.8648648648648649,
-        "support": 39.0
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 15.0
       },
       "Scanning": {
         "precision": 1.0,
-        "recall": 0.9795918367346939,
-        "f1-score": 0.9896907216494846,
-        "support": 49.0
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 22.0
       },
       "XSS/MITM": {
-        "precision": 0.6865671641791045,
-        "recall": 0.9019607843137255,
-        "f1-score": 0.7796610169491526,
-        "support": 51.0
+        "precision": 0.7142857142857143,
+        "recall": 0.5,
+        "f1-score": 0.5882352941176471,
+        "support": 20.0
       },
-      "accuracy": 0.8266666666666667,
+      "accuracy": 0.7666666666666667,
       "macro avg": {
-        "precision": 0.8328608813432593,
-        "recall": 0.8189986494666904,
-        "f1-score": 0.8223920407994044,
-        "support": 300.0
+        "precision": 0.7894557823129251,
+        "recall": 0.7721371882086168,
+        "f1-score": 0.7656777721659489,
+        "support": 120.0
       },
       "weighted avg": {
-        "precision": 0.8336821988174052,
-        "recall": 0.8266666666666667,
-        "f1-score": 0.8263016924772996,
-        "support": 300.0
+        "precision": 0.7954365079365079,
+        "recall": 0.7666666666666667,
+        "f1-score": 0.7667722268611462,
+        "support": 120.0
       }
     },
     "MLP_NoRules": {
       "Backdoor": {
-        "precision": 1.0,
-        "recall": 0.975,
-        "f1-score": 0.9873417721518988,
-        "support": 40.0
+        "precision": 0.9285714285714286,
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9285714285714286,
+        "support": 14.0
       },
       "Benign": {
-        "precision": 0.85,
-        "recall": 0.7727272727272727,
-        "f1-score": 0.8095238095238095,
-        "support": 44.0
+        "precision": 0.9166666666666666,
+        "recall": 0.6875,
+        "f1-score": 0.7857142857142857,
+        "support": 16.0
       },
       "DoS/DDoS": {
-        "precision": 0.7027027027027027,
-        "recall": 0.7222222222222222,
-        "f1-score": 0.7123287671232876,
-        "support": 36.0
+        "precision": 0.5,
+        "recall": 0.9333333333333333,
+        "f1-score": 0.6511627906976745,
+        "support": 15.0
       },
       "Injection": {
-        "precision": 0.6764705882352942,
-        "recall": 0.5609756097560976,
-        "f1-score": 0.6133333333333333,
-        "support": 41.0
+        "precision": 0.6666666666666666,
+        "recall": 0.5555555555555556,
+        "f1-score": 0.6060606060606061,
+        "support": 18.0
       },
       "Password": {
-        "precision": 0.9142857142857143,
-        "recall": 0.8205128205128205,
-        "f1-score": 0.8648648648648649,
-        "support": 39.0
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 15.0
       },
       "Scanning": {
         "precision": 1.0,
-        "recall": 0.9795918367346939,
-        "f1-score": 0.9896907216494846,
-        "support": 49.0
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 22.0
       },
       "XSS/MITM": {
-        "precision": 0.6865671641791045,
-        "recall": 0.9019607843137255,
-        "f1-score": 0.7796610169491526,
-        "support": 51.0
+        "precision": 0.7142857142857143,
+        "recall": 0.5,
+        "f1-score": 0.5882352941176471,
+        "support": 20.0
       },
-      "accuracy": 0.8266666666666667,
+      "accuracy": 0.7666666666666667,
       "macro avg": {
-        "precision": 0.8328608813432593,
-        "recall": 0.8189986494666904,
-        "f1-score": 0.8223920407994044,
-        "support": 300.0
+        "precision": 0.7894557823129251,
+        "recall": 0.7721371882086168,
+        "f1-score": 0.7656777721659489,
+        "support": 120.0
       },
       "weighted avg": {
-        "precision": 0.8336821988174052,
-        "recall": 0.8266666666666667,
-        "f1-score": 0.8263016924772996,
-        "support": 300.0
+        "precision": 0.7954365079365079,
+        "recall": 0.7666666666666667,
+        "f1-score": 0.7667722268611462,
+        "support": 120.0
       }
     },
     "NeuroSymbolic_Hard": {
       "Backdoor": {
-        "precision": 1.0,
-        "recall": 0.975,
-        "f1-score": 0.9873417721518988,
-        "support": 40.0
+        "precision": 0.9285714285714286,
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9285714285714286,
+        "support": 14.0
       },
       "Benign": {
-        "precision": 0.8947368421052632,
-        "recall": 0.7727272727272727,
-        "f1-score": 0.8292682926829268,
-        "support": 44.0
+        "precision": 1.0,
+        "recall": 0.6875,
+        "f1-score": 0.8148148148148148,
+        "support": 16.0
       },
       "DoS/DDoS": {
-        "precision": 0.7027027027027027,
-        "recall": 0.7222222222222222,
-        "f1-score": 0.7123287671232876,
-        "support": 36.0
+        "precision": 0.5,
+        "recall": 0.9333333333333333,
+        "f1-score": 0.6511627906976745,
+        "support": 15.0
       },
       "Injection": {
-        "precision": 0.6764705882352942,
-        "recall": 0.5609756097560976,
-        "f1-score": 0.6133333333333333,
-        "support": 41.0
+        "precision": 0.6666666666666666,
+        "recall": 0.5555555555555556,
+        "f1-score": 0.6060606060606061,
+        "support": 18.0
       },
       "Password": {
-        "precision": 0.8918918918918919,
-        "recall": 0.8461538461538461,
-        "f1-score": 0.868421052631579,
-        "support": 39.0
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 15.0
       },
       "Scanning": {
-        "precision": 1.0,
-        "recall": 0.9795918367346939,
-        "f1-score": 0.9896907216494846,
-        "support": 49.0
+        "precision": 0.9565217391304348,
+        "recall": 1.0,
+        "f1-score": 0.9777777777777777,
+        "support": 22.0
       },
       "XSS/MITM": {
-        "precision": 0.6865671641791045,
-        "recall": 0.9019607843137255,
-        "f1-score": 0.7796610169491526,
-        "support": 51.0
+        "precision": 0.7142857142857143,
+        "recall": 0.5,
+        "f1-score": 0.5882352941176471,
+        "support": 20.0
       },
-      "accuracy": 0.83,
+      "accuracy": 0.7666666666666667,
       "macro avg": {
-        "precision": 0.8360527413020366,
-        "recall": 0.8226616531296941,
-        "f1-score": 0.8257207080745231,
-        "support": 300.0
+        "precision": 0.7951493640934635,
+        "recall": 0.7721371882086168,
+        "f1-score": 0.7666603874342783,
+        "support": 120.0
       },
       "weighted avg": {
-        "precision": 0.8373324054149802,
-        "recall": 0.83,
-        "f1-score": 0.8296598544169762,
-        "support": 300.0
+        "precision": 0.7985766045548655,
+        "recall": 0.7666666666666667,
+        "f1-score": 0.7665782233338093,
+        "support": 120.0
       }
     },
     "NeuroSymbolic": {
       "Backdoor": {
-        "precision": 1.0,
-        "recall": 0.975,
-        "f1-score": 0.9873417721518988,
-        "support": 40.0
+        "precision": 0.9285714285714286,
+        "recall": 0.9285714285714286,
+        "f1-score": 0.9285714285714286,
+        "support": 14.0
       },
       "Benign": {
-        "precision": 0.8947368421052632,
-        "recall": 0.7727272727272727,
-        "f1-score": 0.8292682926829268,
-        "support": 44.0
+        "precision": 1.0,
+        "recall": 0.6875,
+        "f1-score": 0.8148148148148148,
+        "support": 16.0
       },
       "DoS/DDoS": {
-        "precision": 0.7027027027027027,
-        "recall": 0.7222222222222222,
-        "f1-score": 0.7123287671232876,
-        "support": 36.0
+        "precision": 0.5,
+        "recall": 0.9333333333333333,
+        "f1-score": 0.6511627906976745,
+        "support": 15.0
       },
       "Injection": {
-        "precision": 0.6764705882352942,
-        "recall": 0.5609756097560976,
-        "f1-score": 0.6133333333333333,
-        "support": 41.0
+        "precision": 0.6666666666666666,
+        "recall": 0.5555555555555556,
+        "f1-score": 0.6060606060606061,
+        "support": 18.0
       },
       "Password": {
-        "precision": 0.8918918918918919,
-        "recall": 0.8461538461538461,
-        "f1-score": 0.868421052631579,
-        "support": 39.0
+        "precision": 0.8,
+        "recall": 0.8,
+        "f1-score": 0.8,
+        "support": 15.0
       },
       "Scanning": {
-        "precision": 1.0,
-        "recall": 0.9795918367346939,
-        "f1-score": 0.9896907216494846,
-        "support": 49.0
+        "precision": 0.9565217391304348,
+        "recall": 1.0,
+        "f1-score": 0.9777777777777777,
+        "support": 22.0
       },
       "XSS/MITM": {
-        "precision": 0.6865671641791045,
-        "recall": 0.9019607843137255,
-        "f1-score": 0.7796610169491526,
-        "support": 51.0
+        "precision": 0.7142857142857143,
+        "recall": 0.5,
+        "f1-score": 0.5882352941176471,
+        "support": 20.0
       },
-      "accuracy": 0.83,
+      "accuracy": 0.7666666666666667,
       "macro avg": {
-        "precision": 0.8360527413020366,
-        "recall": 0.8226616531296941,
-        "f1-score": 0.8257207080745231,
-        "support": 300.0
+        "precision": 0.7951493640934635,
+        "recall": 0.7721371882086168,
+        "f1-score": 0.7666603874342783,
+        "support": 120.0
       },
       "weighted avg": {
-        "precision": 0.8373324054149802,
-        "recall": 0.83,
-        "f1-score": 0.8296598544169762,
-        "support": 300.0
+        "precision": 0.7985766045548655,
+        "recall": 0.7666666666666667,
+        "f1-score": 0.7665782233338093,
+        "support": 120.0
       }
     }
   },
   "confusion_matrices": {
     "RandomForest": [
       [
-        39,
+        13,
+        0,
         0,
         0,
         1,
-        0,
         0,
         0
       ],
       [
         0,
-        39,
+        12,
+        1,
+        1,
         0,
+        0,
+        2
+      ],
+      [
+        0,
+        0,
+        11,
         2,
+        0,
+        0,
+        2
+      ],
+      [
+        0,
+        1,
+        1,
+        11,
         2,
+        0,
+        3
+      ],
+      [
+        0,
+        0,
+        1,
+        1,
+        12,
         0,
         1
       ],
       [
         0,
-        1,
-        30,
-        1,
-        1,
         0,
-        3
+        0,
+        0,
+        0,
+        22,
+        0
       ],
       [
+        0,
+        0,
         0,
         2,
-        1,
-        27,
-        3,
-        0,
-        8
-      ],
-      [
-        0,
-        1,
-        0,
-        5,
-        33,
-        0,
-        0
-      ],
-      [
-        0,
-        1,
         0,
         0,
-        0,
-        48,
-        0
-      ],
-      [
-        0,
-        0,
-        0,
-        3,
-        1,
-        0,
-        47
+        18
       ]
     ],
     "MLP": [
       [
-        39,
+        13,
+        0,
+        0,
+        0,
         1,
         0,
+        0
+      ],
+      [
+        1,
+        11,
+        3,
         0,
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        14,
+        1,
         0,
         0,
         0
       ],
       [
         0,
-        34,
-        5,
         1,
-        1,
-        0,
-        3
-      ],
-      [
-        0,
+        3,
+        10,
         2,
-        26,
-        2,
-        0,
-        0,
-        6
-      ],
-      [
-        0,
-        1,
-        5,
-        23,
-        2,
-        0,
-        10
-      ],
-      [
-        0,
-        1,
-        0,
-        4,
-        32,
         0,
         2
       ],
       [
         0,
-        1,
+        0,
+        0,
+        2,
+        12,
+        0,
+        1
+      ],
+      [
         0,
         0,
         0,
-        48,
+        0,
+        0,
+        22,
         0
       ],
       [
         0,
         0,
-        1,
-        4,
+        8,
+        2,
         0,
         0,
-        46
+        10
       ]
     ],
     "NeuroSymbolic": [
       [
-        39,
+        13,
+        0,
+        0,
+        0,
         1,
         0,
+        0
+      ],
+      [
+        1,
+        11,
+        3,
         0,
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        14,
+        1,
         0,
         0,
         0
       ],
       [
         0,
-        34,
-        5,
-        1,
-        1,
         0,
-        3
-      ],
-      [
-        0,
-        2,
-        26,
-        2,
-        0,
-        0,
-        6
-      ],
-      [
-        0,
-        0,
-        5,
-        23,
         3,
-        0,
-        10
-      ],
-      [
-        0,
-        0,
-        0,
-        4,
-        33,
-        0,
+        10,
+        2,
+        1,
         2
       ],
       [
         0,
-        1,
+        0,
+        0,
+        2,
+        12,
+        0,
+        1
+      ],
+      [
         0,
         0,
         0,
-        48,
+        0,
+        0,
+        22,
         0
       ],
       [
         0,
         0,
-        1,
-        4,
+        8,
+        2,
         0,
         0,
-        46
+        10
       ]
     ]
   },
   "rule_diagnostics": {
-    "samples": 300,
-    "rules_fired": 51,
-    "rules_fired_pct": 17.0,
-    "predictions_changed": 2,
-    "prediction_change_count": 2,
-    "predictions_changed_pct": 0.6666666666666667,
-    "prediction_change_pct": 0.6666666666666667,
-    "accuracy_before_rules": 0.8266666666666667,
-    "accuracy_after_rules": 0.83,
-    "accuracy_delta": 0.0033333333333332993,
-    "macro_f1_before_rules": 0.8223920407994044,
-    "macro_f1_after_rules": 0.8257207080745231,
-    "macro_f1_delta": 0.003328667275118713,
-    "binary_attack_recall_before_rules": 0.9765625,
-    "binary_attack_recall_after_rules": 0.984375,
-    "binary_attack_recall_delta": 0.0078125,
-    "mean_rule_strength": 0.13458738666666667,
+    "samples": 120,
+    "rules_fired": 18,
+    "rules_fired_pct": 15.0,
+    "predictions_changed": 1,
+    "prediction_change_count": 1,
+    "predictions_changed_pct": 0.8333333333333334,
+    "prediction_change_pct": 0.8333333333333334,
+    "accuracy_before_rules": 0.7666666666666667,
+    "accuracy_after_rules": 0.7666666666666667,
+    "accuracy_delta": 0.0,
+    "macro_f1_before_rules": 0.7656777721659489,
+    "macro_f1_after_rules": 0.7666603874342783,
+    "macro_f1_delta": 0.0009826152683294342,
+    "binary_attack_recall_before_rules": 0.9903846153846154,
+    "binary_attack_recall_after_rules": 1.0,
+    "binary_attack_recall_delta": 0.009615384615384581,
+    "mean_rule_strength": 0.11926701088952006,
     "rule_counts": {
-      "R7_LEARNED_FN_RESCUE_2": 2,
-      "R1_HIGH_PACKET_RATE_BURST": 48,
-      "R4_SUSPICIOUS_BENIGN_ATTACK_MASS": 1
+      "R1_HIGH_PACKET_RATE_BURST": 17,
+      "R7_LEARNED_FN_RESCUE_1": 1
     },
     "applied_rule_counts": {
-      "R7_LEARNED_FN_RESCUE_2": 2
+      "R7_LEARNED_FN_RESCUE_1": 1
     },
-    "false_negatives_before": 6,
-    "false_negatives_after": 4
+    "false_negatives_before": 1,
+    "false_negatives_after": 0
   },
   "attack_class_deltas": [
     {
       "class": "Backdoor",
-      "base_recall": 0.975,
-      "ns_recall": 0.975,
+      "base_recall": 0.9285714285714286,
+      "ns_recall": 0.9285714285714286,
       "recall_delta": 0.0,
-      "base_f1": 0.9873417721518988,
-      "ns_f1": 0.9873417721518988,
+      "base_f1": 0.9285714285714286,
+      "ns_f1": 0.9285714285714286,
       "f1_delta": 0.0
     },
     {
       "class": "Benign",
-      "base_recall": 0.7727272727272727,
-      "ns_recall": 0.7727272727272727,
+      "base_recall": 0.6875,
+      "ns_recall": 0.6875,
       "recall_delta": 0.0,
-      "base_f1": 0.8095238095238095,
-      "ns_f1": 0.8292682926829268,
-      "f1_delta": 0.019744483159117254
+      "base_f1": 0.7857142857142857,
+      "ns_f1": 0.8148148148148148,
+      "f1_delta": 0.02910052910052907
     },
     {
       "class": "DoS/DDoS",
-      "base_recall": 0.7222222222222222,
-      "ns_recall": 0.7222222222222222,
+      "base_recall": 0.9333333333333333,
+      "ns_recall": 0.9333333333333333,
       "recall_delta": 0.0,
-      "base_f1": 0.7123287671232876,
-      "ns_f1": 0.7123287671232876,
+      "base_f1": 0.6511627906976745,
+      "ns_f1": 0.6511627906976745,
       "f1_delta": 0.0
     },
     {
       "class": "Injection",
-      "base_recall": 0.5609756097560976,
-      "ns_recall": 0.5609756097560976,
+      "base_recall": 0.5555555555555556,
+      "ns_recall": 0.5555555555555556,
       "recall_delta": 0.0,
-      "base_f1": 0.6133333333333333,
-      "ns_f1": 0.6133333333333333,
+      "base_f1": 0.6060606060606061,
+      "ns_f1": 0.6060606060606061,
       "f1_delta": 0.0
     },
     {
       "class": "Password",
-      "base_recall": 0.8205128205128205,
-      "ns_recall": 0.8461538461538461,
-      "recall_delta": 0.02564102564102566,
-      "base_f1": 0.8648648648648649,
-      "ns_f1": 0.868421052631579,
-      "f1_delta": 0.0035561877667140696
-    },
-    {
-      "class": "Scanning",
-      "base_recall": 0.9795918367346939,
-      "ns_recall": 0.9795918367346939,
+      "base_recall": 0.8,
+      "ns_recall": 0.8,
       "recall_delta": 0.0,
-      "base_f1": 0.9896907216494846,
-      "ns_f1": 0.9896907216494846,
+      "base_f1": 0.8,
+      "ns_f1": 0.8,
       "f1_delta": 0.0
     },
     {
-      "class": "XSS/MITM",
-      "base_recall": 0.9019607843137255,
-      "ns_recall": 0.9019607843137255,
+      "class": "Scanning",
+      "base_recall": 1.0,
+      "ns_recall": 1.0,
       "recall_delta": 0.0,
-      "base_f1": 0.7796610169491526,
-      "ns_f1": 0.7796610169491526,
+      "base_f1": 1.0,
+      "ns_f1": 0.9777777777777777,
+      "f1_delta": -0.022222222222222254
+    },
+    {
+      "class": "XSS/MITM",
+      "base_recall": 0.5,
+      "ns_recall": 0.5,
+      "recall_delta": 0.0,
+      "base_f1": 0.5882352941176471,
+      "ns_f1": 0.5882352941176471,
       "f1_delta": 0.0
     }
   ],
   "mcnemar_mlp_vs_neurosymbolic": {
     "mlp_correct_ns_wrong": 0,
-    "mlp_wrong_ns_correct": 1,
+    "mlp_wrong_ns_correct": 0,
     "chi2": 0.0,
     "p_value": 1.0
   },
   "novelty_examples": [
     {
-      "sample": 5,
-      "true_label": "Password",
-      "mlp_label": "Benign",
-      "neuro_symbolic_label": "Password",
-      "exact_correction": true,
-      "rule_id": "R7_LEARNED_FN_RESCUE_2",
-      "rule_strength": 0.88,
-      "explanation": "Calibration tree leaf targets neural false negatives: 2/6 benign-predicted calibration flows in this region were Password."
-    },
-    {
       "sample": 45,
       "true_label": "Injection",
       "mlp_label": "Benign",
-      "neuro_symbolic_label": "Password",
+      "neuro_symbolic_label": "Scanning",
       "exact_correction": false,
-      "rule_id": "R7_LEARNED_FN_RESCUE_2",
-      "rule_strength": 0.88,
-      "explanation": "Calibration tree leaf targets neural false negatives: 2/6 benign-predicted calibration flows in this region were Password."
+      "rule_id": "R7_LEARNED_FN_RESCUE_1",
+      "rule_strength": 0.91,
+      "explanation": "Calibration tree leaf targets neural false negatives: 4/8 benign-predicted calibration flows in this region were Scanning."
     }
   ],
   "novelty_proof": {
-    "ns_beats_mlp_accuracy": true,
+    "ns_beats_mlp_accuracy": false,
     "ns_beats_mlp_macro_f1": true,
-    "binary_attack_recall_delta": 0.0078125,
+    "binary_attack_recall_delta": 0.009615384615384581,
     "attack_recall_improved": true,
     "verdict": "proven"
   },

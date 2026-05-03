@@ -30,6 +30,60 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
+def _raw_param(name, default=None, *aliases):
+    payload = request.get_json(silent=True) or {}
+    for key in (name, *aliases):
+        if key in payload:
+            return payload.get(key)
+        if key in request.args:
+            return request.args.get(key)
+    return default
+
+
+def _int_param(name, default, minimum=None, maximum=None, *aliases):
+    raw = _raw_param(name, default, *aliases)
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must be <= {maximum}.")
+    return value
+
+
+def _float_param(name, default, minimum=None, maximum=None, *aliases):
+    raw = _raw_param(name, default, *aliases)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric.") from exc
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must be <= {maximum}.")
+    return value
+
+
+def _fusion_mode_param(default="hard"):
+    mode = str(_raw_param("fusion_mode", default)).strip().lower()
+    if mode not in {"hard", "soft"}:
+        raise ValueError("fusion_mode must be 'hard' or 'soft'.")
+    return mode
+
+
+def _eval_params(default_window=750):
+    return {
+        "window_size": _int_param("window_size", default_window, 50, None, "limit", "n"),
+        "flow_index": _int_param("flow_index", 0, 0, None, "flow_idx", "idx"),
+        "alpha": _float_param("alpha", engine.DEFAULT_ALPHA, 0.0, 1.0),
+        "beta": _float_param("beta", 1.0 - _float_param("alpha", engine.DEFAULT_ALPHA, 0.0, 1.0), 0.0, 1.0),
+        "fusion_mode": _fusion_mode_param(engine.SYMBOLIC_FUSION_MODE),
+        "seed": _int_param("seed", engine.DEFAULT_SEED, 0, 2_147_483_647),
+    }
+
+
 @app.errorhandler(engine.ResourceLoadError)
 def handle_resource_error(exc):
     return jsonify({"error": "resource_load_error", "message": str(exc)}), 503
@@ -65,34 +119,41 @@ def api_overview():
 
 @app.route("/api/research")
 def api_research():
-    return jsonify(engine.analyse_window(request.args.get("limit", 750, type=int)))
+    return jsonify(engine.analyse_window(**_eval_params(750)))
 
 
 @app.route("/api/charts")
 def api_charts():
-    return jsonify(engine.chart_data(request.args.get("limit", 2000, type=int)))
+    return jsonify(engine.chart_data(**_eval_params(2000)))
 
 
 @app.route("/api/ablation")
 def api_ablation():
-    return jsonify(engine.ablation_data(request.args.get("limit", 1000, type=int)))
+    return jsonify(engine.ablation_data(**_eval_params(1000)))
 
 
 @app.route("/api/novelty")
 def api_novelty():
+    params = _eval_params(2000)
     return jsonify(engine.novelty_data(
-        request.args.get("limit", 2000, type=int),
-        request.args.get("alpha", 0.10, type=float),
+        params["window_size"],
+        min(0.40, max(0.01, params["alpha"])),
+        flow_index=params["flow_index"],
+        seed=params["seed"],
     ))
 
 
 @app.route("/api/run-all", methods=["GET", "POST"])
 def api_run_all():
-    payload = request.get_json(silent=True) or {}
-    limit = payload.get("limit", request.args.get("limit", 750, type=int))
-    alpha = payload.get("alpha", request.args.get("alpha", 0.10, type=float))
-    flow_idx = payload.get("flow_idx", request.args.get("flow_idx", 0, type=int))
-    return jsonify(engine.run_all(limit=limit, alpha=alpha, flow_idx=flow_idx))
+    params = _eval_params(750)
+    return jsonify(engine.run_all(
+        limit=params["window_size"],
+        alpha=params["alpha"],
+        beta=params["beta"],
+        flow_idx=params["flow_index"],
+        fusion_mode=params["fusion_mode"],
+        seed=params["seed"],
+    ))
 
 
 @app.route("/api/export-charts", methods=["POST"])
@@ -157,12 +218,20 @@ def api_backend_status():
 
 @app.route("/api/single-flow")
 def api_single_flow():
-    return jsonify(engine.predict_row(request.args.get("idx", 0, type=int)))
+    params = _eval_params(750)
+    return jsonify(engine.predict_row(
+        params["flow_index"],
+        alpha=params["alpha"],
+        beta=params["beta"],
+        fusion_mode=params["fusion_mode"],
+        seed=params["seed"],
+    ))
 
 
 @app.route("/api/comparison")
 def api_comparison():
-    data = engine.analyse_window(request.args.get("n", 200, type=int))
+    params = _eval_params(200)
+    data = engine.analyse_window(**params)
     return jsonify({
         "n_samples": data["limit"],
         "base_accuracy": data["window_metrics"]["baseline_mlp"][0],
@@ -183,8 +252,14 @@ def api_comparison():
 
 @app.route("/api/defense/analyse", methods=["POST"])
 def api_defense_analyse():
-    payload = request.get_json(silent=True) or {}
-    return jsonify(engine.analyse_defense(payload.get("idx", request.args.get("idx", 0))))
+    params = _eval_params(750)
+    return jsonify(engine.analyse_defense(
+        params["flow_index"],
+        alpha=params["alpha"],
+        beta=params["beta"],
+        fusion_mode=params["fusion_mode"],
+        seed=params["seed"],
+    ))
 
 
 @app.route("/api/defense/contain", methods=["POST"])
