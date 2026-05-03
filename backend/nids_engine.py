@@ -46,6 +46,7 @@ _evaluation_cache = {}
 _analysis_cache = {}
 _chart_cache = {}
 _novelty_cache = {}
+_feature_window_cache = {}
 _incident_store = {}
 
 
@@ -179,6 +180,7 @@ def _clear_caches() -> None:
     _analysis_cache.clear()
     _chart_cache.clear()
     _novelty_cache.clear()
+    _feature_window_cache.clear()
 
 
 def _reset_resources() -> None:
@@ -1137,7 +1139,10 @@ def _log_chart_step(logs: list[str], message: str) -> None:
     LOGGER.info(message)
 
 
-def _chart_explorer_payload(evaluated: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+def _chart_explorer_payload(evaluated: dict[str, Any], analysis: dict[str, Any], cache_key: tuple[Any, ...]) -> dict[str, Any]:
+    if cache_key in _feature_window_cache:
+        return _feature_window_cache[cache_key]
+
     subset_X = evaluated["subset_X"]
     indices = evaluated["indices"]
     true_arr = evaluated["true_arr"]
@@ -1191,7 +1196,7 @@ def _chart_explorer_payload(evaluated: dict[str, Any], analysis: dict[str, Any])
         }
         for row in rows
     ]
-    return {
+    payload = {
         "rows": rows,
         "row_count": len(rows),
         "row_limit_applied": row_limit < len(subset_X),
@@ -1205,6 +1210,8 @@ def _chart_explorer_payload(evaluated: dict[str, Any], analysis: dict[str, Any])
         "traffic_over_time": traffic_rows,
         "feature_importance": _global_feature_importance(50),
     }
+    _feature_window_cache[cache_key] = payload
+    return payload
 
 
 def chart_data(
@@ -1437,7 +1444,7 @@ def chart_data(
             "points": proposed_pr_points["points"],
         },
         "class_distribution": analysis["class_distribution"],
-        "chart_explorer": _chart_explorer_payload(evaluated, analysis),
+        "chart_explorer": _chart_explorer_payload(evaluated, analysis, cache_key),
         "rule_hits": analysis["rule_hits"],
         "difference_chart": {
             "labels": ["Accuracy", "Precision", "Recall", "F1"],
@@ -1531,7 +1538,10 @@ def novelty_data(limit=2000, alpha=0.10, flow_index=0, seed=DEFAULT_SEED):
     entropy = _entropy(probs)
     margin = _probability_margin(probs)
 
-    calibration_size = max(50, min(limit // 5, limit - 50))
+    if limit <= 100:
+        calibration_size = max(1, min(limit - 1, max(1, limit // 2)))
+    else:
+        calibration_size = max(50, min(limit // 5, limit - 50))
     calib_probs = probs[:calibration_size]
     calib_labels = subset_y[:calibration_size]
     calib_indices = _class_indices(calib_labels)
@@ -1715,6 +1725,7 @@ def backend_status():
         "cached_analysis_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_analysis_cache.keys())],
         "cached_chart_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_chart_cache.keys())],
         "cached_novelty_windows": [list(key) for key in sorted(_novelty_cache.keys())],
+        "cached_feature_windows": [list(key) for key in sorted(_feature_window_cache.keys())],
         "incident_count": len(_incident_store),
         "note": "Frontend data is served from Flask endpoints backed by model and CSV resources.",
     }

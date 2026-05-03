@@ -1,0 +1,22 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=backend.pipeline --cov=backend.nids_engine --cov-report=term-missing --cov-fail-under=70"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 140
+exclude = ["venv", "data", "models", "paper", "overleaf_ieee_nids_package", "results"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501", "F401"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+check_untyped_defs = true

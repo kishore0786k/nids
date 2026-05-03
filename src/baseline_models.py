@@ -5,7 +5,7 @@ from sklearn.neural_network import MLPClassifier
 try:
     from xgboost import XGBClassifier
     HAS_XGB = True
-except:
+except ImportError:
     HAS_XGB = False
 
 

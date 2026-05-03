@@ -12,12 +12,13 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 
+from backend.config import settings
 from backend import nids_engine as engine
-from src.project_paths import PROJECT_ROOT, TEST_PATH, TRAIN_PATH, MODEL_PATH
+from src.project_paths import TEST_PATH, TRAIN_PATH, MODEL_PATH
 
 
 LOGGER = logging.getLogger(__name__)
-RUNS_DIR = PROJECT_ROOT / "runs"
+RUNS_DIR = settings.runs_dir
 LAST_RUN_PATH = RUNS_DIR / "last_run.json"
 ProgressCallback = Callable[[dict[str, Any]], None]
 

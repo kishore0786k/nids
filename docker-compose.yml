@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    env_file:
+      - .env.example
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data:ro
+      - ./models:/app/models:ro
+      - ./results:/app/results
+      - ./runs:/app/runs
+      - ./logs:/app/logs
+  frontend:
+    build:
+      context: .
+      target: frontend
+    depends_on:
+      - api
+    ports:
+      - "8080:80"

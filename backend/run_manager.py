@@ -8,7 +8,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from backend.pipeline import PipelineStageError, run_all_pipeline
 
@@ -59,7 +59,7 @@ def _update_stage(job_id: str, stage_name: str, patch: Mapping[str, Any]) -> Non
         job["progress"] = _progress_percent(job)
 
 
-def _progress_callback(job_id: str):
+def _progress_callback(job_id: str) -> Callable[[dict[str, Any]], None]:
     def callback(event: dict[str, Any]) -> None:
         name = event.get("stage")
         if event.get("event") == "pipeline_started":
@@ -110,7 +110,10 @@ def start_run(params: Mapping[str, Any]) -> dict[str, Any]:
     with _LOCK:
         _JOBS[job_id] = job
     EXECUTOR.submit(_execute, job_id, dict(params))
-    return get_status(job_id)
+    status = get_status(job_id)
+    if status is None:
+        raise RuntimeError(f"Run job was not created: {job_id}")
+    return status
 
 
 def get_status(job_id: str) -> dict[str, Any] | None:

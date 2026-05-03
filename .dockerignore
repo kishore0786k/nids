@@ -1,0 +1,12 @@
+.git
+.ruff_cache
+venv
+__pycache__
+*.pyc
+data
+models
+logs
+runs/*.json
+results/dashboard_chart_exports
+paper/figures/generated
+overleaf_ieee_nids_package

@@ -14,10 +14,13 @@ models/
 # Ignore large files
 *.csv
 *.parquet
+!tests/fixtures/*.csv
+!tests/fixtures/*.pcap
 
 # Python cache
 __pycache__/
 *.pyc
+.coverage
 
 # Logs
 *.log

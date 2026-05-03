@@ -1,91 +1,124 @@
-# Neuro-Symbolic NIDS Research Package
+# Neuro-Symbolic NIDS
 
-Publication-oriented intrusion detection project for NF-ToN-IoT-V2 NetFlow traffic.
+[![CI](https://github.com/kishore0786k/NIDS/actions/workflows/ci.yml/badge.svg)](https://github.com/kishore0786k/NIDS/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue)](https://github.com/kishore0786k/NIDS/releases)
+[![Python](https://img.shields.io/badge/python-3.10%2B-green)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
-## Research Contribution
+Publication-ready Network Intrusion Detection System for NF-ToN-IoT-V2 NetFlow traffic. The system combines a neural classifier with auditable symbolic rules, calibrated confidence, attribution evidence, and an interactive dashboard for run-level analysis.
 
-This project contributes a confidence-aware neuro-symbolic NIDS: an MLP detects NetFlow attack classes, while percentile-calibrated symbolic rules target weak false-negative regions such as benign-looking scanning flows. The rule layer supports hard override and soft probability fusion, records auditable rule traces, and reports rule firing rate, prediction-change rate, false-negative reduction, per-class recall/F1 deltas, and ablation results.
+![Demo GIF placeholder](docs/demo-placeholder.gif)
 
-Novelty claim: instead of adding passive hand-written rules, the system calibrates symbolic thresholds from the training distribution and fuses rule evidence with neural probabilities so symbolic logic measurably changes predictions and improves targeted attack detection.
+## Quickstart
 
-## Publication Experiment
-
-```bat
-venv\Scripts\python.exe -m src.experiment_runner --fusion-mode soft --alpha 0.65
+```bash
+cp .env.example .env
+docker compose up --build
 ```
 
-Fast smoke run:
+Open the dashboard at `http://127.0.0.1:8080`. The API is available at `http://127.0.0.1:5000`.
 
-```bat
-venv\Scripts\python.exe -m src.experiment_runner --quick-limit 500
+Local Python run:
+
+```bash
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
+venv\Scripts\python -m backend.app
 ```
 
-The runner uses `data/train_processed.csv` and `data/test_processed.csv`, evaluates RandomForest, MLP, NeuroSymbolic hard fusion, NeuroSymbolic soft fusion, prints classification reports/confusion matrices, and saves `results/publication_experiment.json`.
+## Architecture
 
-The neuro-symbolic layer now reports `rules_fired`, `prediction_change_count`, accuracy/F1 deltas, binary attack-recall deltas, and concrete benign-to-attack correction examples. A smoke publication run (`--quick-limit 300`) demonstrates MLP accuracy/F1 improving from 0.8267/0.8224 to 0.8300/0.8257, with attack false negatives reduced from 6 to 4.
-
-Publication artifacts are saved under `results/`:
-
-- `publication_experiment.json`
-- `model_comparison.csv`
-- `attack_class_deltas.csv`
-- `rule_diagnostics.csv`
-- `confusion_mlp.csv`
-- `confusion_neurosymbolic.csv`
-- `mcnemar_mlp_vs_neurosymbolic.csv`
-
-Optional multi-seed run:
-
-```bat
-venv\Scripts\python.exe -m src.experiment_runner --seeds 42,43,44
+```mermaid
+flowchart LR
+  A["NetFlow window"] --> B["Preprocess and feature extraction"]
+  B --> C["Sklearn model predict_proba"]
+  C --> D["Symbolic rule fusion"]
+  D --> E["Evidence builder"]
+  D --> F["Run summary and charts"]
+  E --> G["Flask API"]
+  F --> G
+  G --> H["Vanilla JS dashboard"]
+  H --> I["Plotly chart explorer"]
+  H --> J["Expandable evidence cards"]
 ```
 
-## Run Dashboard
+## Run All Pipeline
 
-```bat
-run_project.bat
+The `Run All` button starts an asynchronous job:
+
+1. capture processed NetFlow rows
+2. preprocess the selected deterministic window
+3. extract and cache feature payloads
+4. batch predict and apply symbolic rules
+5. write structured audit logs
+6. build visualization payloads
+
+Status is polled at `/api/run/status/<job_id>`. The latest completed summary is written to `runs/last_run.json`.
+
+## API Reference
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/health` | GET | Service health and last-run persistence state |
+| `/api/run-all` | POST | Start full pipeline job; returns `job_id` |
+| `/api/run/status/<job_id>` | GET | Poll progress, stage results, and final payload |
+| `/api/single-flow` | GET | Predict one flow with evidence |
+| `/api/charts` | GET | Chart and Plotly explorer data |
+| `/api/defense/analyse` | POST | Create a defensive recommendation for one flow |
+| `/api/export-charts` | POST | Persist rendered PNG chart exports |
+| `/api/upload/validate` | POST | Validate upload size and file type |
+
+## Evidence
+
+Each prediction emits:
+
+- top contributing features with SHAP or permutation-style attribution scores
+- flow context such as IP, port, protocol, byte, packet, and timestamp fields when present
+- raw confidence and calibrated/fused probability
+- matched symbolic rule signatures
+- historical frequency for the predicted attack class
+
+The dashboard renders this as expandable evidence cards instead of a single paragraph.
+
+## Model Card
+
+**Dataset:** NF-ToN-IoT-V2 processed NetFlow CSV splits in `data/train_processed.csv` and `data/test_processed.csv`.
+
+**Model:** sklearn-compatible classifier stored at `models/ns_nids_model.pkl`; optional robust model at `models/robust_nsnids.pkl`.
+
+**Metrics:** Live dashboard metrics are recomputed from current model predictions. Publication summaries under `results/` are used only as saved reference artifacts.
+
+**Limitations:** Results depend on the supplied processed split and may not generalize to unseen networks without external validation. Symbolic rules are audit aids, not a substitute for analyst review.
+
+**Ethical Use:** Use for defensive monitoring, research reproducibility, and education. Do not deploy for unauthorized surveillance or automated punitive action without human oversight.
+
+## Screenshots
+
+- `results/dashboard-runall.png`
+- `results/dashboard-impact-panel.png`
+- `results/dashboard-architecture-final.png`
+
+## Development
+
+```bash
+pytest
+ruff check backend src tests
+mypy --strict --ignore-missing-imports --follow-imports=skip backend/config.py backend/logging_config.py backend/run_manager.py
+pip-audit -r requirements.txt
 ```
 
-Then open:
+## Citation
 
-```text
-http://127.0.0.1:5000
+```bibtex
+@software{kishore_nids_2026,
+  author = {Kishore},
+  title = {Neuro-Symbolic Network Intrusion Detection System},
+  version = {1.0.0},
+  year = {2026},
+  url = {https://github.com/kishore0786k/NIDS}
+}
 ```
 
-Use the dashboard **Run All** button to call `/api/run-all`, clear cached windows, recompute metrics/charts/reliability/defence state, and refresh the novelty proof panel from live model outputs.
+## License
 
-## Build IEEE/Overleaf Artifacts
-
-```bat
-build_publication_package.bat
-```
-
-Generated outputs:
-
-- `paper/generated/*.tex`
-- `paper/figures/generated/*.pdf`
-- `results/publication_package/publication_package.json`
-- `NIDS_IEEE_Overleaf_Package.zip`
-
-## Structure
-
-- `backend/app.py`: Flask API and dashboard server.
-- `backend/nids_engine.py`: model, metrics, charts, reliability, OOD, and defence backend.
-- `src/neuro_symbolic.py`: auditable symbolic rules and rule analytics.
-- `src/experiment_runner.py`: canonical offline experiment/evaluation runner.
-- `src/project_paths.py`: shared project-root paths.
-- `src/app.py` and `src/backend_engine.py`: compatibility wrappers for older imports.
-- `frontend/`: dashboard UI.
-- `paper/`: IEEE support files and generated paper assets.
-- `results/publication_package/`: reproducibility package.
-- `docs/REFACTOR_CHANGELOG.md`: static-to-empirical refactor notes.
-
-## Verification
-
-```bat
-venv\Scripts\python.exe -m unittest backend.test_smoke
-```
-
-## Final Submission Notes
-
-Before IEEE submission, manually verify the cited baseline method, bibliography metadata, author details, and manuscript claims against generated artifacts.
+MIT License. See `LICENSE`.

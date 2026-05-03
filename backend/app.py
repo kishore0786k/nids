@@ -18,18 +18,47 @@ from werkzeug.exceptions import HTTPException
 
 from backend import nids_engine as engine
 from backend import run_manager
+from backend.config import settings
+from backend.logging_config import configure_logging
 from backend.pipeline import LAST_RUN_PATH, PipelineStageError
-from src.project_paths import FRONTEND_DIR, PROJECT_ROOT
+from src.project_paths import PROJECT_ROOT
 
 
+configure_logging(settings)
 app = Flask(
-    __name__,
-    template_folder=str(FRONTEND_DIR),
-    static_folder=str(FRONTEND_DIR),
+    settings.app_name,
+    template_folder=str(settings.frontend_dir),
+    static_folder=str(settings.frontend_dir),
     static_url_path="/static",
 )
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+app.config["MAX_CONTENT_LENGTH"] = settings.max_upload_bytes
+LOGGER = logging.getLogger(__name__)
+
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+except ImportError:
+    Limiter = None
+    get_remote_address = None
+
+if Limiter is not None and get_remote_address is not None:
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=[settings.rate_limit_default],
+        storage_uri="memory://",
+    )
+else:
+    limiter = None
+    LOGGER.warning("Flask-Limiter is not installed; endpoint rate limiting is disabled.")
+
+
+def rate_limit(limit_value):
+    def decorator(func):
+        return limiter.limit(limit_value)(func) if limiter is not None else func
+
+    return decorator
 
 
 def _raw_param(name, default=None, *aliases):
@@ -75,6 +104,17 @@ def _fusion_mode_param(default="hard"):
     return mode
 
 
+def _validate_upload(file_storage):
+    if file_storage is None:
+        raise ValueError("No file was provided.")
+    filename = str(file_storage.filename or "")
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in settings.allowed_upload_suffixes:
+        allowed = ", ".join(sorted(settings.allowed_upload_suffixes))
+        raise ValueError(f"Unsupported upload type. Allowed extensions: {allowed}.")
+    return filename
+
+
 def _eval_params(default_window=750):
     return {
         "window_size": _int_param("window_size", default_window, 50, None, "limit", "n"),
@@ -88,7 +128,8 @@ def _eval_params(default_window=750):
 
 @app.errorhandler(engine.ResourceLoadError)
 def handle_resource_error(exc):
-    return jsonify({"error": "resource_load_error", "message": str(exc)}), 503
+    LOGGER.exception("Resource load failure")
+    return jsonify({"error": "resource_load_error", "message": "A required model or data resource could not be loaded."}), 503
 
 
 @app.errorhandler(ValueError)
@@ -96,15 +137,27 @@ def handle_value_error(exc):
     return jsonify({"error": "invalid_request", "message": str(exc)}), 400
 
 
+@app.errorhandler(413)
+def handle_upload_too_large(exc):
+    return jsonify({
+        "error": "payload_too_large",
+        "message": f"Upload exceeds the {settings.max_upload_mb} MB limit.",
+    }), 413
+
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(exc):
     if isinstance(exc, HTTPException):
         return jsonify({"error": exc.name, "message": exc.description}), exc.code
     if isinstance(exc, PipelineStageError):
-        app.logger.exception("Pipeline stage failed: %s", exc.stage)
-        return jsonify({"error": "pipeline_stage_failed", "message": str(exc), "stage": exc.stage}), 500
-    app.logger.exception("Unhandled backend error")
-    return jsonify({"error": "internal_error", "message": str(exc)}), 500
+        LOGGER.exception("Pipeline stage failed: %s", exc.stage)
+        return jsonify({
+            "error": "pipeline_stage_failed",
+            "message": "Run All failed while executing the pipeline.",
+            "stage": exc.stage,
+        }), 500
+    LOGGER.exception("Unhandled backend error")
+    return jsonify({"error": "internal_error", "message": "An unexpected backend error occurred."}), 500
 
 
 @app.route("/")
@@ -121,6 +174,19 @@ def api_health():
         "status": "healthy",
         "last_run_persisted": LAST_RUN_PATH.exists(),
         "last_run_path": str(LAST_RUN_PATH),
+    })
+
+
+@app.route("/api/upload/validate", methods=["POST"])
+@rate_limit("20 per minute")
+def api_upload_validate():
+    upload = request.files.get("file")
+    filename = _validate_upload(upload)
+    return jsonify({
+        "ok": True,
+        "filename": filename,
+        "max_bytes": settings.max_upload_bytes,
+        "allowed_extensions": sorted(settings.allowed_upload_suffixes),
     })
 
 
@@ -162,6 +228,7 @@ def api_novelty():
 
 
 @app.route("/api/run-all", methods=["GET", "POST"])
+@rate_limit(settings.rate_limit_run_all)
 def api_run_all():
     params = _eval_params(750)
     payload = {
@@ -204,6 +271,7 @@ def api_run_status(job_id):
 
 
 @app.route("/api/export-charts", methods=["POST"])
+@rate_limit("30 per minute")
 def api_export_charts():
     payload = request.get_json(silent=True) or {}
     charts = payload.get("charts") or []
@@ -298,6 +366,7 @@ def api_comparison():
 
 
 @app.route("/api/defense/analyse", methods=["POST"])
+@rate_limit("60 per minute")
 def api_defense_analyse():
     params = _eval_params(750)
     return jsonify(engine.analyse_defense(
@@ -310,6 +379,7 @@ def api_defense_analyse():
 
 
 @app.route("/api/defense/contain", methods=["POST"])
+@rate_limit("60 per minute")
 def api_defense_contain():
     payload = request.get_json(silent=True) or {}
     incident, message = engine.contain_incident(payload.get("incident_id"))
@@ -324,8 +394,8 @@ def api_defense_status():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(settings.port)
     print("Neuro-Symbolic NIDS backend running")
     print(f"Project root: {PROJECT_ROOT}")
     print(f"Dashboard: http://127.0.0.1:{port}")
-    app.run(debug=False, threaded=True, port=port)
+    app.run(debug=settings.environment == "development", threaded=True, host=settings.host, port=port)

@@ -16,6 +16,7 @@ const state = {
   runStatus: null,
   chartConfig: null,
   chartExportRows: [],
+  plotlyLoadStarted: false,
 };
 
 const DEBOUNCE_MS = 350;
@@ -651,7 +652,18 @@ function classMatrix(rows, xColumn, yColumn, topN) {
 
 function renderChartExplorer() {
   const target = $("#chart-explorer");
-  if (!target || !window.Plotly) return;
+  if (!target) return;
+  if (!window.Plotly) {
+    target.innerHTML = `<div class="chart-fallback">Plotly is loading. Chart data and CSV export are available.</div>`;
+    if (!state.plotlyLoadStarted) {
+      state.plotlyLoadStarted = true;
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js";
+      script.onload = () => renderChartExplorer();
+      document.head.appendChild(script);
+    }
+    return;
+  }
   syncChartControls();
   const explorer = explorerPayload();
   const cfg = loadChartConfig();
