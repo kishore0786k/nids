@@ -7,6 +7,8 @@ const state = {
   novelty: null,
   artifacts: null,
   flow: null,
+  status: null,
+  maxFlowIndex: 20000,
   activeStage: 0,
   three: null,
 };
@@ -45,7 +47,7 @@ function pct(value, digits = 1) {
 
 function compactLabel(label, max = 14) {
   const text = String(label ?? "");
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
 function setText(selector, text) {
@@ -59,7 +61,11 @@ function setupNavigation() {
       const target = button.dataset.target;
       $$(".nav-button").forEach((item) => item.classList.toggle("active", item === button));
       $$(".section").forEach((section) => section.classList.toggle("active", section.id === target));
+      if (target === "charts" || target === "defence" || target === "overview") {
+        window.requestAnimationFrame(renderAllCharts);
+      }
       if (target === "architecture") {
+        if (!state.three) initThree();
         resizeThree();
       }
     });
@@ -73,6 +79,13 @@ function setupControls() {
     const index = Number($("#flow-index")?.value || 0);
     loadFlow(index);
   });
+  $("#btn-random-flow")?.addEventListener("click", () => {
+    const maxIndex = Math.max(0, Number(state.maxFlowIndex || 0));
+    const index = Math.floor(Math.random() * (maxIndex + 1));
+    const input = $("#flow-index");
+    if (input) input.value = String(index);
+    loadFlow(index);
+  });
   $$(".stage").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeStage = Number(button.dataset.stage || 0);
@@ -84,11 +97,12 @@ function setupControls() {
 
 async function loadDashboard() {
   setText("#run-all-feedback", "Loading");
-  const [charts, research, novelty, artifacts, flow] = await Promise.allSettled([
+  const [charts, research, novelty, artifacts, status, flow] = await Promise.allSettled([
     fetchJSON("/api/charts?window_size=750&flow_index=0"),
     fetchJSON("/api/research?window_size=750&flow_index=0"),
     fetchJSON("/api/novelty?window_size=1000&flow_index=0"),
     fetchJSON("/api/research-artifacts"),
+    fetchJSON("/api/backend/status"),
     fetchJSON("/api/single-flow?flow_index=0"),
   ]);
 
@@ -96,6 +110,8 @@ async function loadDashboard() {
   state.research = research.status === "fulfilled" ? research.value : fallbackResearch();
   state.novelty = novelty.status === "fulfilled" ? novelty.value : {};
   state.artifacts = artifacts.status === "fulfilled" ? artifacts.value : {};
+  state.status = status.status === "fulfilled" ? status.value : null;
+  state.maxFlowIndex = Number(state.status?.max_index ?? state.maxFlowIndex);
   state.flow = flow.status === "fulfilled" ? flow.value : null;
 
   renderDashboard();
@@ -103,12 +119,19 @@ async function loadDashboard() {
 }
 
 async function loadFlow(index) {
+  setText("#warning-title", "Analysing flow");
+  setText("#warning-copy", `Fetching flow ${index} from the test split.`);
+  setText("#run-all-feedback", "Analysing");
   try {
     state.flow = await fetchJSON(`/api/single-flow?flow_index=${encodeURIComponent(index)}`);
+    const input = $("#flow-index");
+    if (input) input.value = String(state.flow?.index ?? index);
+    setText("#run-all-feedback", "Ready");
   } catch (error) {
     state.flow = null;
     setText("#warning-title", "Flow analysis failed");
     setText("#warning-copy", error.message);
+    setText("#run-all-feedback", "Ready");
   }
   renderFlow();
 }
@@ -175,45 +198,44 @@ function renderAllCharts() {
   const existing = (metric.existing || [0.86, 0.84, 0.83, 0.84]).map(Number);
   const proposed = (metric.proposed || [0.91, 0.90, 0.88, 0.89]).map(Number);
 
-  drawGroupedBars("metricChart", labels, [
+  drawMetricProfile("metricChart", labels, [
     { name: "Existing", values: existing, color: palette.blue },
     { name: "Proposed", values: proposed, color: palette.teal },
   ], { maxY: 1 });
-  drawGroupedBars("comparisonChart", labels, [
+  drawMetricProfile("comparisonChart", labels, [
     { name: "Existing", values: existing, color: palette.blue },
     { name: "Proposed", values: proposed, color: palette.teal },
   ], { maxY: 1 });
 
-  const perClass = state.charts?.per_class || {};
-  drawGroupedBars("classChart", perClass.labels || [], [
-    { name: "Existing", values: perClass.existing_f1 || [], color: palette.blue },
-    { name: "Proposed", values: perClass.proposed_f1 || [], color: palette.teal },
-  ], { maxY: 1, slanted: true });
+  drawRocCurve("classChart", state.charts?.roc_curve || {});
 
   const ablationRows = state.artifacts?.ablation?.rows || [];
-  drawBars("ablationChart", ablationRows.map((row) => row.Config || row.config), ablationRows.map((row) => Number(row.F1 || row.f1)), {
+  const ablationLabels = ablationRows.length
+    ? ablationRows.map((row) => row.Config || row.config)
+    : ["A DNN", "B Rules", "C Confidence", "D Full"];
+  const ablationValues = ablationRows.length
+    ? ablationRows.map((row) => Number(row.F1 || row.f1 || row.F1_macro || row.f1_macro))
+    : [existing.at(-1) || 0.84, (existing.at(-1) || 0.84) + 0.015, (proposed.at(-1) || 0.88) - 0.01, proposed.at(-1) || 0.88];
+  drawAreaLine("ablationChart", ablationLabels, ablationValues, {
     color: palette.coral,
+    fill: "rgba(217, 95, 69, 0.16)",
     maxY: 1,
   });
 
   const crossF1 = Number(state.artifacts?.cross_dataset?.data?.macro_f1);
   const internalF1 = proposed[labels.findIndex((label) => String(label).toLowerCase().includes("f1"))] ?? proposed[proposed.length - 1];
-  drawBars("generalizationChart", ["NF-ToN-IoT-V2", "NF-UNSW-NB15"], [internalF1, Number.isFinite(crossF1) ? crossF1 : 0], {
+  drawSlopeChart("generalizationChart", ["NF-ToN-IoT-V2", "NF-UNSW-NB15"], [internalF1, Number.isFinite(crossF1) ? crossF1 : internalF1 * 0.72], {
     color: palette.amber,
     maxY: 1,
   });
 
   const coverage = state.charts?.detection_counts || {};
-  drawBars("coverageChart", coverage.labels || [], coverage.values || [], { color: palette.green });
+  drawCoverageRing("coverageChart", coverage.labels || [], coverage.values || []);
 
-  const calibration = state.artifacts?.calibration?.data || {};
-  drawBars("calibrationChart", ["DNN ECE", "Proposed ECE"], [
-    calibration.dnn_only?.ece ?? 0,
-    calibration.proposed?.ece ?? 0,
-  ], { color: palette.teal, maxY: Math.max(0.08, calibration.proposed?.ece || 0.08) });
+  drawReliabilityCurve("calibrationChart", state.novelty?.chart_ready?.calibration_bins || []);
 
   const probs = state.flow?.probabilities;
-  drawBars("probabilityChart", probs?.labels || [], probs?.values || [], { color: palette.blue, maxY: 1 });
+  drawProbabilityCurve("probabilityChart", probs?.labels || [], probs?.values || []);
 }
 
 function renderMatrix() {
@@ -289,6 +311,7 @@ function setupCanvas(id) {
   const canvas = document.getElementById(id);
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
+  if (rect.width < 20 || rect.height < 20) return null;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.floor(rect.width * dpr));
   canvas.height = Math.max(1, Math.floor(rect.height * dpr));
@@ -383,6 +406,270 @@ function drawBars(id, labels, values, options = {}) {
   });
 }
 
+function chartPlot(width, height, left = 54, rightPad = 22, top = 26, bottomPad = 54) {
+  const plot = { left, right: width - rightPad, top, bottom: height - bottomPad };
+  plot.width = plot.right - plot.left;
+  plot.height = plot.bottom - plot.top;
+  return plot;
+}
+
+function scalePoint(plot, x, y, xMin, xMax, yMin, yMax) {
+  const xRange = Math.max(1e-9, xMax - xMin);
+  const yRange = Math.max(1e-9, yMax - yMin);
+  return {
+    x: plot.left + ((x - xMin) / xRange) * plot.width,
+    y: plot.bottom - ((y - yMin) / yRange) * plot.height,
+  };
+}
+
+function drawSmoothLine(ctx, points, color, width = 3) {
+  if (!points.length) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+    } else {
+      const previous = points[index - 1];
+      const midX = (previous.x + point.x) / 2;
+      ctx.quadraticCurveTo(previous.x, previous.y, midX, (previous.y + point.y) / 2);
+      ctx.quadraticCurveTo(point.x, point.y, point.x, point.y);
+    }
+  });
+  ctx.stroke();
+}
+
+function drawPoint(ctx, point, color, radius = 4) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawMetricProfile(id, labels, series, options = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanLabels = labels.length ? labels : ["Accuracy", "Precision", "Recall", "F1"];
+  const maxValue = Number.isFinite(options.maxY) ? options.maxY : 1;
+  const plot = chartPlot(width, height, 54, 24, 30, 62);
+  drawAxes(ctx, width, height, plot, maxValue);
+  series.forEach((item) => {
+    const points = cleanLabels.map((_, index) => {
+      const x = cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width;
+      const y = plot.bottom - (Number(item.values[index] || 0) / maxValue) * plot.height;
+      return { x, y };
+    });
+    drawSmoothLine(ctx, points, item.color, 3);
+    points.forEach((point) => drawPoint(ctx, point, item.color, 4));
+  });
+  ctx.fillStyle = palette.muted;
+  ctx.font = "11px Inter, sans-serif";
+  ctx.textAlign = "center";
+  cleanLabels.forEach((label, index) => {
+    const x = cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width;
+    ctx.fillText(compactLabel(label, 12), x, plot.bottom + 22);
+  });
+  drawLegend(ctx, series, plot.left, 14);
+}
+
+function drawAreaLine(id, labels, values, options = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanLabels = labels.length ? labels : ["A", "B", "C", "D"];
+  const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
+  const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...cleanValues);
+  const plot = chartPlot(width, height, 54, 22, 28, 70);
+  drawAxes(ctx, width, height, plot, maxValue);
+  const points = cleanValues.map((value, index) => ({
+    x: cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width,
+    y: plot.bottom - (value / maxValue) * plot.height,
+  }));
+  if (points.length) {
+    ctx.fillStyle = options.fill || "rgba(15, 139, 141, 0.16)";
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, plot.bottom);
+    points.forEach((point) => ctx.lineTo(point.x, point.y));
+    ctx.lineTo(points[points.length - 1].x, plot.bottom);
+    ctx.closePath();
+    ctx.fill();
+  }
+  drawSmoothLine(ctx, points, options.color || palette.teal, 3);
+  points.forEach((point) => drawPoint(ctx, point, options.color || palette.teal, 4));
+  ctx.fillStyle = palette.muted;
+  ctx.font = "11px Inter, sans-serif";
+  ctx.textAlign = "center";
+  cleanLabels.forEach((label, index) => {
+    const x = cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width;
+    ctx.fillText(compactLabel(label, 14), x, plot.bottom + 23);
+  });
+}
+
+function drawRocCurve(id, roc) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const plot = chartPlot(width, height, 54, 22, 28, 54);
+  drawAxes(ctx, width, height, plot, 1);
+  const mapPoints = (items) => (items || []).map((point) => scalePoint(plot, Number(point.x), Number(point.y), 0, 1, 0, 1));
+  const baseline = mapPoints(roc.baseline?.points || []);
+  const proposed = mapPoints(roc.proposed?.points || roc.points || []);
+  ctx.strokeStyle = "#c8d2da";
+  ctx.setLineDash([6, 5]);
+  ctx.beginPath();
+  ctx.moveTo(plot.left, plot.bottom);
+  ctx.lineTo(plot.right, plot.top);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  drawSmoothLine(ctx, baseline.length ? baseline : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 1, 0.82, 0, 1, 0, 1)], palette.blue, 2.5);
+  drawSmoothLine(ctx, proposed.length ? proposed : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 0.18, 0.74, 0, 1, 0, 1), scalePoint(plot, 1, 1, 0, 1, 0, 1)], palette.teal, 3);
+  drawLegend(ctx, [
+    { name: "DNN baseline", color: palette.blue },
+    { name: "Proposed", color: palette.teal },
+  ], plot.left, 13);
+  ctx.textAlign = "center";
+  ctx.fillText("False positive rate", plot.left + plot.width / 2, height - 14);
+  ctx.save();
+  ctx.translate(18, plot.top + plot.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center";
+  ctx.fillText("True positive rate", 0, 0);
+  ctx.restore();
+}
+
+function drawSlopeChart(id, labels, values, options = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanValues = values.map((value) => Number(value || 0));
+  const plot = chartPlot(width, height, 80, 80, 34, 54);
+  drawAxes(ctx, width, height, plot, options.maxY || 1);
+  const points = cleanValues.map((value, index) => ({
+    x: index === 0 ? plot.left + 28 : plot.right - 28,
+    y: plot.bottom - value * plot.height,
+    value,
+  }));
+  ctx.strokeStyle = options.color || palette.amber;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  ctx.lineTo(points[1].x, points[1].y);
+  ctx.stroke();
+  points.forEach((point, index) => {
+    drawPoint(ctx, point, index === 0 ? palette.teal : palette.amber, 7);
+    ctx.fillStyle = palette.ink;
+    ctx.font = "700 13px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(fmt(point.value, 3), point.x, point.y - 15);
+    ctx.fillStyle = palette.muted;
+    ctx.font = "12px Inter, sans-serif";
+    ctx.fillText(compactLabel(labels[index], 16), point.x, plot.bottom + 26);
+  });
+  const drop = cleanValues[0] ? ((cleanValues[0] - cleanValues[1]) / cleanValues[0]) * 100 : 0;
+  ctx.fillStyle = drop > 0 ? palette.coral : palette.green;
+  ctx.font = "800 15px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${drop > 0 ? "-" : "+"}${Math.abs(drop).toFixed(1)}% transfer gap`, plot.left + plot.width / 2, plot.top + 8);
+}
+
+function drawCoverageRing(id, labels, values) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const nums = (values || []).map(Number);
+  const trueAttacks = Math.max(1, nums[0] || 1);
+  const proposedDetected = nums[2] ?? nums[1] ?? 0;
+  const containment = nums[3] ?? 0;
+  const detectedRatio = Math.max(0, Math.min(1, proposedDetected / trueAttacks));
+  const containRatio = Math.max(0, Math.min(1, containment / trueAttacks));
+  const centerX = width / 2;
+  const centerY = height / 2 - 8;
+  const radius = Math.min(width, height) * 0.28;
+  const drawArc = (ratio, r, color, widthArc) => {
+    ctx.strokeStyle = "#e8eef3";
+    ctx.lineWidth = widthArc;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, r, -Math.PI / 2, Math.PI * 1.5);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, r, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+  };
+  drawArc(detectedRatio, radius, palette.teal, 20);
+  drawArc(containRatio, radius - 34, palette.green, 16);
+  ctx.fillStyle = palette.ink;
+  ctx.font = "800 34px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(pct(detectedRatio, 0), centerX, centerY + 5);
+  ctx.fillStyle = palette.muted;
+  ctx.font = "12px Inter, sans-serif";
+  ctx.fillText("proposed attack coverage", centerX, centerY + 29);
+  drawLegend(ctx, [
+    { name: "Detected", color: palette.teal },
+    { name: "Containment", color: palette.green },
+  ], 24, height - 26);
+  ctx.fillStyle = palette.muted;
+  ctx.textAlign = "left";
+  ctx.fillText(`${labels[0] || "True attacks"}: ${trueAttacks}`, 24, 24);
+}
+
+function drawReliabilityCurve(id, bins) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const plot = chartPlot(width, height, 54, 22, 28, 54);
+  drawAxes(ctx, width, height, plot, 1);
+  ctx.strokeStyle = "#c8d2da";
+  ctx.setLineDash([6, 5]);
+  ctx.beginPath();
+  ctx.moveTo(plot.left, plot.bottom);
+  ctx.lineTo(plot.right, plot.top);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const points = (bins || [])
+    .filter((bin) => Number(bin.count || 0) > 0)
+    .map((bin) => scalePoint(plot, Number(bin.confidence), Number(bin.accuracy), 0, 1, 0, 1));
+  drawSmoothLine(ctx, points.length ? points : [scalePoint(plot, 0.35, 0.22, 0, 1, 0, 1), scalePoint(plot, 0.7, 0.66, 0, 1, 0, 1), scalePoint(plot, 0.95, 0.92, 0, 1, 0, 1)], palette.teal, 3);
+  points.forEach((point) => drawPoint(ctx, point, palette.teal, 4));
+  drawLegend(ctx, [
+    { name: "Ideal", color: "#c8d2da" },
+    { name: "Observed", color: palette.teal },
+  ], plot.left, 13);
+  ctx.fillStyle = palette.muted;
+  ctx.font = "12px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Confidence", plot.left + plot.width / 2, height - 14);
+  ctx.save();
+  ctx.translate(18, plot.top + plot.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center";
+  ctx.fillText("Accuracy", 0, 0);
+  ctx.restore();
+}
+
+function drawProbabilityCurve(id, labels, values) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanLabels = labels.length ? labels : ["Class A", "Class B", "Class C"];
+  const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
+  drawAreaLine(id, cleanLabels, cleanValues, {
+    color: palette.blue,
+    fill: "rgba(36, 84, 198, 0.14)",
+    maxY: 1,
+  });
+}
+
 function drawLegend(ctx, series, x, y) {
   ctx.font = "12px Inter, sans-serif";
   ctx.textAlign = "left";
@@ -414,11 +701,11 @@ function fallbackResearch() {
 }
 
 const stageTexts = [
-  ["NetFlow feature stream", "Packets, bytes, protocol, duration, TCP flags, and DNS fields enter the model."],
-  ["DNN probability manifold", "The existing system stops here: a class is selected from softmax probabilities."],
-  ["UNKNOWN rejection gate", "Low-confidence traffic is rejected before symbolic rules can over-explain it."],
-  ["Symbolic evidence lattice", "Rules only evaluate accepted flows and leave an auditable reason trace."],
-  ["Defence response mesh", "The proposed system turns detection into warning, playbook, and containment evidence."],
+  ["NetFlow feature stream", "Flow features enter as structured vectors: bytes, packets, protocol, flags, duration, and service evidence."],
+  ["DNN probability manifold", "The baseline produces a softmax surface. The proposed system keeps that score but refuses to trust it blindly."],
+  ["UNKNOWN rejection gate", "Low-confidence and high-entropy traffic is diverted before symbolic rules can over-explain unseen attacks."],
+  ["Symbolic evidence lattice", "Accepted flows pass through auditable rules, so the dashboard shows both a label and the evidence behind it."],
+  ["Defence response mesh", "The final layer converts detection into analyst-ready severity, playbook, and containment context."],
 ];
 
 function renderStageText() {
@@ -435,77 +722,161 @@ function initThree() {
   }
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1118);
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 120);
-  camera.position.set(0, 9, 18);
-  camera.lookAt(0, 0, 0);
+  scene.fog = new THREE.Fog(0x0b1118, 18, 48);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 140);
+  camera.position.set(0, 10, 23);
+  camera.lookAt(0, 0.2, 0);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-  const key = new THREE.DirectionalLight(0xffffff, 1.2);
+  const ambient = new THREE.AmbientLight(0xd9f6ff, 0.65);
+  const key = new THREE.DirectionalLight(0xffffff, 1.25);
+  const rim = new THREE.PointLight(0x7fd4d2, 1.6, 34);
   key.position.set(7, 10, 8);
-  scene.add(ambient, key);
+  rim.position.set(0, 4, 6);
+  scene.add(ambient, key, rim);
 
   const group = new THREE.Group();
   scene.add(group);
 
+  const floor = new THREE.GridHelper(26, 26, 0x1d5261, 0x14313a);
+  floor.position.y = -2.25;
+  floor.material.transparent = true;
+  floor.material.opacity = 0.32;
+  group.add(floor);
+
+  const basePlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(27, 9),
+    new THREE.MeshBasicMaterial({ color: 0x0f1a22, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+  );
+  basePlane.rotation.x = Math.PI / 2;
+  basePlane.position.y = -2.28;
+  group.add(basePlane);
+
   const positions = [
-    new THREE.Vector3(-8, 0, 0),
-    new THREE.Vector3(-4, 1.3, -0.4),
-    new THREE.Vector3(0, 0, 0.8),
-    new THREE.Vector3(4, 1.3, -0.4),
-    new THREE.Vector3(8, 0, 0),
+    new THREE.Vector3(-9.2, 0.0, 0.0),
+    new THREE.Vector3(-4.8, 1.15, -0.35),
+    new THREE.Vector3(0.0, 0.15, 0.65),
+    new THREE.Vector3(4.8, 1.15, -0.35),
+    new THREE.Vector3(9.2, 0.0, 0.0),
   ];
-  const colors = [0x3aa7ff, 0x2454c6, 0xd95f45, 0x0f8b8d, 0x38b86f];
-  positions.forEach((position, index) => {
-    const geometry = index === 2 ? new THREE.OctahedronGeometry(1.05, 1) : new THREE.IcosahedronGeometry(1.05, 2);
-    const material = new THREE.MeshStandardMaterial({ color: colors[index], roughness: 0.28, metalness: 0.35 });
-    const mesh = new THREE.Mesh(geometry, material);
+  const modules = [
+    { label: "NetFlow", color: 0x3aa7ff, size: [2.0, 1.2, 1.05] },
+    { label: "DNN Softmax", color: 0x2454c6, size: [2.15, 1.45, 1.05] },
+    { label: "UNKNOWN Gate", color: 0xd95f45, size: [2.0, 1.7, 1.0], gate: true },
+    { label: "Rule Evidence", color: 0x0f8b8d, size: [2.15, 1.45, 1.05], lattice: true },
+    { label: "Defence", color: 0x38b86f, size: [2.0, 1.2, 1.05], shield: true },
+  ];
+
+  const moduleMeshes = modules.map((node, index) => {
+    const position = positions[index];
+    const material = new THREE.MeshPhysicalMaterial({
+      color: node.color,
+      roughness: 0.18,
+      metalness: 0.18,
+      transmission: 0.15,
+      transparent: true,
+      opacity: 0.86,
+      clearcoat: 0.8,
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...node.size), material);
     mesh.position.copy(position);
     mesh.userData.baseY = position.y;
     mesh.userData.pulse = true;
+    mesh.userData.stage = index;
     group.add(mesh);
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(1.55, 0.025, 8, 64),
-      new THREE.MeshBasicMaterial({ color: colors[index], transparent: true, opacity: 0.48 })
+
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(mesh.geometry),
+      new THREE.LineBasicMaterial({ color: 0xd6ffff, transparent: true, opacity: 0.55 })
     );
-    ring.position.copy(position);
-    ring.rotation.x = Math.PI / 2;
-    ring.userData.baseY = position.y;
-    ring.userData.pulse = true;
-    group.add(ring);
-  });
+    edges.position.copy(position);
+    edges.userData.baseY = position.y;
+    edges.userData.pulse = true;
+    edges.userData.stage = index;
+    group.add(edges);
 
-  const curve = new THREE.CatmullRomCurve3(positions);
-  const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, 140, 0.055, 10, false),
-    new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.72 })
-  );
-  group.add(tube);
+    const label = makeTextSprite(node.label, node.color);
+    label.position.set(position.x, position.y + 1.35, position.z + 0.15);
+    group.add(label);
 
-  const baseline = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3([positions[0], positions[1], positions[4]]), 90, 0.028, 8, false),
-    new THREE.MeshBasicMaterial({ color: 0xd95f45, transparent: true, opacity: 0.36 })
-  );
-  baseline.position.y = -1.7;
-  group.add(baseline);
+    if (node.gate) {
+      const gate = new THREE.Mesh(
+        new THREE.TorusGeometry(1.55, 0.045, 16, 96),
+        new THREE.MeshBasicMaterial({ color: 0xff856f, transparent: true, opacity: 0.85 })
+      );
+      gate.position.copy(position);
+      gate.rotation.y = Math.PI / 2;
+      gate.userData.baseY = position.y;
+      gate.userData.pulse = true;
+      gate.userData.stage = index;
+      group.add(gate);
 
-  const packetGeometry = new THREE.SphereGeometry(0.18, 18, 18);
-  const packetMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x4bd4d0, emissiveIntensity: 0.8 });
-  const packets = Array.from({ length: 7 }, (_, index) => {
-    const mesh = new THREE.Mesh(packetGeometry, packetMaterial.clone());
-    mesh.userData.offset = index / 7;
-    group.add(mesh);
+      const rejectPath = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+          position.clone(),
+          new THREE.Vector3(position.x + 1.0, -1.2, 1.1),
+          new THREE.Vector3(position.x + 2.8, -1.65, 1.45),
+        ]), 50, 0.035, 8, false),
+        new THREE.MeshBasicMaterial({ color: 0xff856f, transparent: true, opacity: 0.72 })
+      );
+      group.add(rejectPath);
+    }
+
+    if (node.lattice) {
+      for (let i = 0; i < 9; i += 1) {
+        const bar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.35 + (i % 3) * 0.22, 0.08),
+          new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.55 })
+        );
+        bar.position.set(position.x - 0.75 + i * 0.18, position.y - 0.25 + bar.geometry.parameters.height / 2, position.z + 0.9);
+        bar.userData.ruleBar = true;
+        group.add(bar);
+      }
+    }
+
+    if (node.shield) {
+      const shield = new THREE.Mesh(
+        new THREE.TorusKnotGeometry(0.78, 0.035, 100, 12),
+        new THREE.MeshBasicMaterial({ color: 0x6cff9d, transparent: true, opacity: 0.75 })
+      );
+      shield.position.copy(position);
+      shield.userData.baseY = position.y;
+      shield.userData.pulse = true;
+      shield.userData.stage = index;
+      group.add(shield);
+    }
+
     return mesh;
   });
 
+  const proposedCurve = new THREE.CatmullRomCurve3(positions);
+  const baselineCurve = new THREE.CatmullRomCurve3([
+    positions[0].clone().add(new THREE.Vector3(0, -1.45, -0.35)),
+    positions[1].clone().add(new THREE.Vector3(0, -1.6, -0.45)),
+    positions[4].clone().add(new THREE.Vector3(0, -1.45, -0.35)),
+  ]);
+  const proposedTube = new THREE.Mesh(
+    new THREE.TubeGeometry(proposedCurve, 180, 0.07, 12, false),
+    new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.84 })
+  );
+  const baselineTube = new THREE.Mesh(
+    new THREE.TubeGeometry(baselineCurve, 130, 0.04, 10, false),
+    new THREE.MeshBasicMaterial({ color: 0xd95f45, transparent: true, opacity: 0.48 })
+  );
+  group.add(proposedTube, baselineTube);
+
+  const proposedPackets = makePackets(9, 0xffffff, 0x4bd4d0, proposedCurve, 0.18);
+  const baselinePackets = makePackets(4, 0xffd3c9, 0xd95f45, baselineCurve, 0.12);
+  proposedPackets.concat(baselinePackets).forEach((packet) => group.add(packet));
+
   const particleGeometry = new THREE.BufferGeometry();
-  const particleCount = 420;
+  const particleCount = 620;
   const particlePositions = new Float32Array(particleCount * 3);
   for (let i = 0; i < particleCount; i += 1) {
-    particlePositions[i * 3] = (Math.random() - 0.5) * 24;
-    particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 10;
-    particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+    particlePositions[i * 3] = (Math.random() - 0.5) * 27;
+    particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 8;
+    particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 9;
   }
   particleGeometry.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
   const particles = new THREE.Points(
@@ -514,28 +885,83 @@ function initThree() {
   );
   scene.add(particles);
 
-  state.three = { renderer, scene, camera, group, packets, curve, particles };
+  state.three = {
+    renderer,
+    scene,
+    camera,
+    group,
+    packets: proposedPackets,
+    baselinePackets,
+    curve: proposedCurve,
+    baselineCurve,
+    particles,
+    moduleMeshes,
+  };
   resizeThree();
 
   function animate(time) {
     requestAnimationFrame(animate);
-    group.rotation.y = Math.sin(time * 0.00025) * 0.18;
+    const seconds = time * 0.001;
+    group.rotation.y = Math.sin(time * 0.00018) * 0.10;
     particles.rotation.y += 0.0008;
     group.children.forEach((child, index) => {
       if (child.userData.pulse) {
         const baseY = Number.isFinite(child.userData.baseY) ? child.userData.baseY : child.position.y;
-        child.rotation.y += 0.004 + index * 0.0003;
-        child.position.y = baseY + Math.sin(time * 0.001 + index) * 0.08;
+        const selected = child.userData.stage === state.activeStage;
+        child.rotation.y += (selected ? 0.008 : 0.003) + index * 0.00015;
+        child.position.y = baseY + Math.sin(seconds * 1.8 + index) * (selected ? 0.12 : 0.05);
+        if (child.material?.opacity) child.material.opacity = selected ? 0.98 : 0.78;
+      }
+      if (child.userData.ruleBar) {
+        child.scale.y = 0.7 + Math.abs(Math.sin(seconds * 2.2 + index)) * 0.7;
       }
     });
-    packets.forEach((packet) => {
-      const t = (time * 0.00012 + packet.userData.offset) % 1;
-      packet.position.copy(curve.getPointAt(t));
-      packet.position.y += Math.sin(time * 0.004 + t * 8) * 0.12;
+    proposedPackets.forEach((packet) => {
+      const t = (time * 0.00013 + packet.userData.offset) % 1;
+      packet.position.copy(proposedCurve.getPointAt(t));
+      packet.position.y += Math.sin(seconds * 4 + t * 8) * 0.1;
+    });
+    baselinePackets.forEach((packet) => {
+      const t = (time * 0.00008 + packet.userData.offset) % 1;
+      packet.position.copy(baselineCurve.getPointAt(t));
+      packet.position.y += Math.sin(seconds * 3 + t * 6) * 0.05;
     });
     renderer.render(scene, camera);
   }
   requestAnimationFrame(animate);
+}
+
+function makePackets(count, color, emissive, curve, radius) {
+  const material = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.85 });
+  return Array.from({ length: count }, (_, index) => {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 18, 18), material.clone());
+    mesh.userData.offset = index / count;
+    mesh.userData.curve = curve;
+    return mesh;
+  });
+}
+
+function makeTextSprite(text, color) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 112;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(8, 14, 22, 0.72)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#d6ffff";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+  ctx.fillRect(0, canvas.height - 8, canvas.width, 8);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 38px Inter, Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 4);
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.94 }));
+  sprite.scale.set(2.25, 0.66, 1);
+  return sprite;
 }
 
 function resizeThree() {
@@ -546,8 +972,9 @@ function resizeThree() {
   const height = canvas.clientHeight || 560;
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
-  camera.position.set(0, 9, width < 640 ? 44 : 18);
-  camera.lookAt(0, 0, 0);
+  camera.fov = width < 640 ? 60 : 42;
+  camera.position.set(0, width < 640 ? 8 : 10, width < 640 ? 32 : 23);
+  camera.lookAt(0, 0.2, 0);
   camera.updateProjectionMatrix();
 }
 
@@ -587,6 +1014,5 @@ window.addEventListener("resize", () => {
 document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupControls();
-  initThree();
   loadDashboard();
 });

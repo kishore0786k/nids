@@ -438,6 +438,7 @@ code {
 .defence-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -568,6 +569,48 @@ code {
   gap: 8px;
 }
 
+.architecture-legend {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  display: grid;
+  gap: 8px;
+  width: min(310px, calc(100% - 52px));
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  background: rgba(6, 10, 16, 0.58);
+  color: #dce8ee;
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.architecture-legend span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.architecture-legend i {
+  display: inline-block;
+  width: 20px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.legend-proposed {
+  background: #7fd4d2;
+}
+
+.legend-baseline {
+  background: #d95f45;
+}
+
+.legend-gate {
+  background: #ff856f;
+}
+
 .stage {
   height: 36px;
   border: 1px solid rgba(255,255,255,0.22);
@@ -677,6 +720,13 @@ code {
 
   .stage-shell {
     height: 640px;
+  }
+
+  .architecture-legend {
+    top: 12px;
+    left: 16px;
+    right: 16px;
+    width: auto;
   }
 
   .stage-labels {

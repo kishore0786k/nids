@@ -91,12 +91,12 @@
           <span class="chart-fallback">Dashboard charts rendered below with browser-native canvas.</span>
         </div>
         <div class="chart-grid">
-          <section class="panel"><div class="panel-head"><h2>1. Metric Comparison</h2><p>Existing DNN against proposed neuro-symbolic output.</p></div><canvas id="comparisonChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>2. Per-Class F1</h2><p>Which attack types benefit or remain difficult.</p></div><canvas id="classChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>3. Ablation Study</h2><p>DNN, rules, confidence, and the full system.</p></div><canvas id="ablationChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>4. Generalization Gap</h2><p>Internal NF-ToN-IoT-V2 F1 vs external NF-UNSW-NB15 F1.</p></div><canvas id="generalizationChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>5. Detection Coverage</h2><p>True attacks, detected attacks, and containment candidates.</p></div><canvas id="coverageChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>6. Calibration Evidence</h2><p>Reliability and ECE for DNN-only and proposed outputs.</p></div><canvas id="calibrationChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>1. Metric Profile Curve</h2><p>Accuracy, precision, recall, and F1 as a comparison curve.</p></div><canvas id="comparisonChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>2. ROC Curve</h2><p>Baseline probability surface against the proposed fused output.</p></div><canvas id="classChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>3. Ablation Lift Curve</h2><p>How each component changes macro-F1 across the four configurations.</p></div><canvas id="ablationChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>4. Generalization Slope</h2><p>Internal NF-ToN-IoT-V2 F1 vs external NF-UNSW-NB15 F1.</p></div><canvas id="generalizationChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>5. Detection Coverage Ring</h2><p>Attack detection and containment coverage at a glance.</p></div><canvas id="coverageChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>6. Calibration Reliability</h2><p>Confidence vs observed accuracy with the ideal trust line.</p></div><canvas id="calibrationChart" class="chart-canvas"></canvas></section>
         </div>
       </section>
 
@@ -121,6 +121,7 @@
           <label for="flow-index">Flow index</label>
           <input id="flow-index" type="number" min="0" value="0" />
           <button id="btn-analyse-flow" class="btn primary">Analyse Flow</button>
+          <button id="btn-random-flow" class="btn ghost">Random Flow</button>
         </div>
         <div class="split">
           <section class="warning-card" id="warning-card">
@@ -143,11 +144,16 @@
       <section id="architecture" class="section architecture-section">
         <div class="architecture-copy">
           <span>Advanced 3D system view</span>
-          <h2>Why the proposed system is stronger than the existing DNN-only baseline</h2>
-          <p>The scene shows the baseline path as a single probability tunnel. The proposed path adds confidence rejection, symbolic rule evidence, and response control before an analyst acts.</p>
+          <h2>How the proposed NIDS adds uncertainty, symbolic evidence, and response control</h2>
+          <p>The upper pipeline visualizes the proposed system. The lower red bypass shows what the existing DNN-only baseline misses: low-confidence rejection, rule evidence, and response-ready analyst context.</p>
         </div>
         <div class="stage-shell">
           <canvas id="architecture-canvas"></canvas>
+          <div class="architecture-legend" aria-hidden="true">
+            <span><i class="legend-proposed"></i>Proposed pipeline</span>
+            <span><i class="legend-baseline"></i>DNN-only baseline</span>
+            <span><i class="legend-gate"></i>UNKNOWN rejection gate</span>
+          </div>
           <div class="stage-labels">
             <button class="stage active" data-stage="0">NetFlow</button>
             <button class="stage" data-stage="1">DNN</button>
