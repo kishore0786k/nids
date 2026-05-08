@@ -1,0 +1,12 @@
+| Attack     | Severity_score |
+| ---------- | -------------- |
+| Benign     | 0.5688         |
+| backdoor   | 0.6150         |
+| ddos       | 0.5808         |
+| dos        | 0.5355         |
+| injection  | 0.5372         |
+| mitm       | 0.5485         |
+| password   | 0.5867         |
+| ransomware | 0.8157         |
+| scanning   | 0.5652         |
+| xss        | 0.5199         |

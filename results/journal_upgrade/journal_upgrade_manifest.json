@@ -1,0 +1,404 @@
+{
+  "claim": "Lightweight hybrid uncertainty-aware NIDS with cross-dataset generalization and explainable intrusion analysis",
+  "config": {
+    "train_data": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\data\\NF-ToN-IoT-V2.csv",
+    "external_data": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\data\\NF-UNSW-NB15-v3.csv",
+    "output_dir": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\journal_upgrade",
+    "figure_dir": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade",
+    "table_dir": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade",
+    "model_dir": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade",
+    "max_train_rows": 20000,
+    "max_external_rows": 10000,
+    "sample_mode": "random",
+    "test_size": 0.2,
+    "confidence_threshold": 0.65,
+    "alpha": 0.6,
+    "shap_sample_size": 80,
+    "skip_shap": false,
+    "xgb_estimators": 30,
+    "xgb_max_depth": 6,
+    "xgb_learning_rate": 0.1,
+    "iso_estimators": 30,
+    "n_jobs": -1,
+    "seed": 42,
+    "use_smote": true
+  },
+  "feature_columns": [
+    "L4_SRC_PORT",
+    "L4_DST_PORT",
+    "PROTOCOL",
+    "L7_PROTO",
+    "IN_BYTES",
+    "IN_PKTS",
+    "OUT_BYTES",
+    "OUT_PKTS",
+    "TCP_FLAGS",
+    "CLIENT_TCP_FLAGS",
+    "SERVER_TCP_FLAGS",
+    "FLOW_DURATION_MILLISECONDS",
+    "DURATION_IN",
+    "DURATION_OUT",
+    "MIN_TTL",
+    "MAX_TTL",
+    "LONGEST_FLOW_PKT",
+    "SHORTEST_FLOW_PKT",
+    "MIN_IP_PKT_LEN",
+    "MAX_IP_PKT_LEN",
+    "SRC_TO_DST_SECOND_BYTES",
+    "DST_TO_SRC_SECOND_BYTES",
+    "RETRANSMITTED_IN_BYTES",
+    "RETRANSMITTED_IN_PKTS",
+    "RETRANSMITTED_OUT_BYTES",
+    "RETRANSMITTED_OUT_PKTS",
+    "SRC_TO_DST_AVG_THROUGHPUT",
+    "DST_TO_SRC_AVG_THROUGHPUT",
+    "NUM_PKTS_UP_TO_128_BYTES",
+    "NUM_PKTS_128_TO_256_BYTES",
+    "NUM_PKTS_256_TO_512_BYTES",
+    "NUM_PKTS_512_TO_1024_BYTES",
+    "NUM_PKTS_1024_TO_1514_BYTES",
+    "TCP_WIN_MAX_IN",
+    "TCP_WIN_MAX_OUT",
+    "ICMP_TYPE",
+    "ICMP_IPV4_TYPE",
+    "DNS_QUERY_ID",
+    "DNS_QUERY_TYPE",
+    "DNS_TTL_ANSWER",
+    "FTP_COMMAND_RET_CODE"
+  ],
+  "class_distribution_before_smote": {
+    "Benign": 4468,
+    "backdoor": 23,
+    "ddos": 2122,
+    "dos": 798,
+    "injection": 774,
+    "mitm": 9,
+    "password": 1244,
+    "ransomware": 3,
+    "scanning": 3587,
+    "xss": 2972
+  },
+  "class_distribution_after_smote": {
+    "Benign": 4396,
+    "backdoor": 4468,
+    "ddos": 4453,
+    "dos": 4454,
+    "injection": 4448,
+    "mitm": 4468,
+    "password": 4442,
+    "ransomware": 4468,
+    "scanning": 4405,
+    "xss": 4414
+  },
+  "binary_distribution_after_smote": {
+    "0": 11464,
+    "1": 11464
+  },
+  "validation_metrics": {
+    "Accuracy": 0.88575,
+    "Precision": 0.703171278934754,
+    "Recall": 0.6393252231305465,
+    "F1_macro": 0.6682184609330775,
+    "MCC": 0.8666244020179954,
+    "AUC_ROC": 0.988946624655062
+  },
+  "internal_binary_metrics": {
+    "Accuracy": 0.965,
+    "Precision": 0.9713425045536345,
+    "Recall": 0.9417192935713352,
+    "F1_macro": 0.9551573959387335,
+    "MCC": 0.9125811265670034,
+    "AUC_ROC": 0.9960336129026046
+  },
+  "external_summary": {
+    "rows": 10000,
+    "attack_distribution": {
+      "Benign": 9486,
+      "Exploits": 166,
+      "Fuzzers": 131,
+      "Generic": 82,
+      "Reconnaissance": 71,
+      "DoS": 23,
+      "Backdoor": 22,
+      "Analysis": 10,
+      "Shellcode": 9
+    },
+    "unknown_pct": 15.78,
+    "classification_report": {
+      "0": {
+        "precision": 0.8413948256467941,
+        "recall": 0.07885304659498207,
+        "f1-score": 0.14419277108433734,
+        "support": 9486.0
+      },
+      "1": {
+        "precision": 0.040939523652727475,
+        "recall": 0.72568093385214,
+        "f1-score": 0.07750649350649351,
+        "support": 514.0
+      },
+      "accuracy": 0.1121,
+      "macro avg": {
+        "precision": 0.4411671746497608,
+        "recall": 0.40226699022356105,
+        "f1-score": 0.11084963229541542,
+        "support": 10000.0
+      },
+      "weighted avg": {
+        "precision": 0.8002514231242991,
+        "recall": 0.1121,
+        "f1-score": 0.14076509641683618,
+        "support": 10000.0
+      }
+    },
+    "metrics": {
+      "Accuracy": 0.1121,
+      "Precision": 0.4411671746497608,
+      "Recall": 0.40226699022356105,
+      "F1_macro": 0.11084963229541542,
+      "MCC": -0.15165631005837443,
+      "AUC_ROC": 0.26543642853568356
+    },
+    "mean_severity_score": 0.7666683824953379,
+    "severity_distribution": {
+      "Critical": 6625,
+      "High": 1217,
+      "Low": 65,
+      "Medium": 2093
+    }
+  },
+  "severity_distribution": {
+    "Low": 232,
+    "Medium": 3073,
+    "High": 648,
+    "Critical": 47
+  },
+  "threshold_sensitivity": [
+    {
+      "Threshold": 0.5,
+      "Unknown_pct": 4.475,
+      "F1_macro": 0.6781732803878172,
+      "FP_unknown_rate": 0.04475
+    },
+    {
+      "Threshold": 0.55,
+      "Unknown_pct": 5.575,
+      "F1_macro": 0.6778541893053824,
+      "FP_unknown_rate": 0.05575
+    },
+    {
+      "Threshold": 0.6,
+      "Unknown_pct": 6.825,
+      "F1_macro": 0.6747162857607087,
+      "FP_unknown_rate": 0.06825
+    },
+    {
+      "Threshold": 0.65,
+      "Unknown_pct": 8.975,
+      "F1_macro": 0.6682184609330775,
+      "FP_unknown_rate": 0.08975
+    },
+    {
+      "Threshold": 0.7,
+      "Unknown_pct": 12.174999999999999,
+      "F1_macro": 0.659279291012351,
+      "FP_unknown_rate": 0.12175
+    }
+  ],
+  "ablation": [
+    {
+      "Config": "A) XGBoost only, no SMOTE, no threshold",
+      "F1_macro": 0.7481746540178023,
+      "MCC": 0.9370083662492398,
+      "Unknown_pct": null,
+      "Severity_acc": null
+    },
+    {
+      "Config": "B) XGBoost + SMOTE, no threshold",
+      "F1_macro": 0.7449378454270117,
+      "MCC": 0.9288675735503379,
+      "Unknown_pct": null,
+      "Severity_acc": null
+    },
+    {
+      "Config": "C) XGBoost + Isolation Forest, no confidence threshold",
+      "F1_macro": 0.6577461377690638,
+      "MCC": 0.8769526616821438,
+      "Unknown_pct": 4.9,
+      "Severity_acc": 0.08575
+    },
+    {
+      "Config": "D) Full hybrid + unknown threshold + severity",
+      "F1_macro": 0.6682184609330775,
+      "MCC": 0.8666244020179954,
+      "Unknown_pct": 8.975,
+      "Severity_acc": 0.08575
+    }
+  ],
+  "generalization_gap": [
+    {
+      "Metric": "Accuracy",
+      "NF-ToN-IoT-V2": 0.965,
+      "NF-UNSW-NB15": 0.1121,
+      "Drop": 0.8529
+    },
+    {
+      "Metric": "F1_macro",
+      "NF-ToN-IoT-V2": 0.9551573959387335,
+      "NF-UNSW-NB15": 0.11084963229541542,
+      "Drop": 0.844307763643318
+    },
+    {
+      "Metric": "AUC_ROC",
+      "NF-ToN-IoT-V2": 0.9960336129026046,
+      "NF-UNSW-NB15": 0.26543642853568356,
+      "Drop": 0.730597184366921
+    }
+  ],
+  "top_features_per_attack": {
+    "Benign": [
+      "LONGEST_FLOW_PKT",
+      "L4_SRC_PORT",
+      "SRC_TO_DST_SECOND_BYTES"
+    ],
+    "backdoor": [
+      "OUT_PKTS",
+      "L7_PROTO",
+      "MIN_TTL"
+    ],
+    "ddos": [
+      "TCP_WIN_MAX_IN",
+      "L4_DST_PORT",
+      "FLOW_DURATION_MILLISECONDS"
+    ],
+    "dos": [
+      "TCP_WIN_MAX_IN",
+      "DNS_QUERY_TYPE",
+      "DNS_QUERY_ID"
+    ],
+    "injection": [
+      "TCP_WIN_MAX_IN",
+      "DST_TO_SRC_AVG_THROUGHPUT",
+      "L4_DST_PORT"
+    ],
+    "mitm": [
+      "MIN_IP_PKT_LEN",
+      "SHORTEST_FLOW_PKT",
+      "DNS_QUERY_ID"
+    ],
+    "password": [
+      "L7_PROTO",
+      "L4_DST_PORT",
+      "TCP_WIN_MAX_OUT"
+    ],
+    "ransomware": [
+      "NUM_PKTS_128_TO_256_BYTES",
+      "L4_DST_PORT",
+      "L4_SRC_PORT"
+    ],
+    "scanning": [
+      "IN_BYTES",
+      "L7_PROTO",
+      "SRC_TO_DST_SECOND_BYTES"
+    ],
+    "xss": [
+      "L4_DST_PORT",
+      "LONGEST_FLOW_PKT",
+      "MAX_IP_PKT_LEN"
+    ]
+  },
+  "models": {
+    "xgb_model": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\xgb_model.pkl",
+    "xgb_multiclass_model": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\xgb_multiclass_model.pkl",
+    "xgb_binary_model": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\xgb_binary_model.pkl",
+    "iso_model": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\iso_model.pkl",
+    "scaler": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\scaler.pkl",
+    "multi_label_encoder": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\multi_label_encoder.pkl",
+    "binary_label_encoder": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\binary_label_encoder.pkl",
+    "feature_columns": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\journal_upgrade\\feature_columns.json"
+  },
+  "tables": {
+    "table_i_final_metrics": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_i_final_metrics.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_i_final_metrics.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_i_final_metrics.md"
+    },
+    "table_ii_ablation": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_ii_ablation.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_ii_ablation.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_ii_ablation.md"
+    },
+    "table_iii_threshold_sensitivity": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iii_threshold_sensitivity.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iii_threshold_sensitivity.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iii_threshold_sensitivity.md"
+    },
+    "table_iv_generalization_gap": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iv_generalization_gap.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iv_generalization_gap.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\table_iv_generalization_gap.md"
+    },
+    "severity_by_attack": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\severity_by_attack.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\severity_by_attack.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\severity_by_attack.md"
+    },
+    "shap_top_features": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\shap_top_features.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\shap_top_features.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\shap_top_features.md"
+    },
+    "latency": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\latency.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\latency.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\latency.md"
+    },
+    "external_metrics": {
+      "csv": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\external_metrics.csv",
+      "tex": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\external_metrics.tex",
+      "md": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\generated\\journal_upgrade\\external_metrics.md"
+    }
+  },
+  "figures": {
+    "fig_01_confusion_matrix": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_01_confusion_matrix.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_01_confusion_matrix.pdf"
+    },
+    "fig_02_per_class_f1": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_02_per_class_f1.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_02_per_class_f1.pdf"
+    },
+    "fig_03_shap_global": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_03_shap_global.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_03_shap_global.pdf"
+    },
+    "fig_04_severity_distribution": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_04_severity_distribution.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_04_severity_distribution.pdf"
+    },
+    "fig_05_threshold_sensitivity": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_05_threshold_sensitivity.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_05_threshold_sensitivity.pdf"
+    },
+    "fig_06_cross_dataset_generalization": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_06_cross_dataset_generalization.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_06_cross_dataset_generalization.pdf"
+    },
+    "fig_07_latency_vs_f1": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_07_latency_vs_f1.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_07_latency_vs_f1.pdf"
+    },
+    "fig_08_severity_attack_heatmap": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_08_severity_attack_heatmap.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_08_severity_attack_heatmap.pdf"
+    },
+    "fig_shap_beeswarm": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_shap_beeswarm.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_shap_beeswarm.pdf"
+    },
+    "fig_shap_waterfall": {
+      "png": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_shap_waterfall.png",
+      "pdf": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\paper\\figures\\journal_upgrade\\fig_shap_waterfall.pdf"
+    }
+  }
+}
