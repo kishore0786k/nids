@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
-Publication-ready Network Intrusion Detection System for NF-ToN-IoT-V2 NetFlow traffic. The system combines a neural classifier with auditable symbolic rules, calibrated confidence, attribution evidence, and an interactive dashboard for run-level analysis.
+Publication-ready Network Intrusion Detection System for NF-ToN-IoT-V2 NetFlow traffic. We propose a cross-dataset, uncertainty-aware neuro-symbolic NIDS that detects known attacks and rejects low-confidence unseen traffic.
 
 ![Demo GIF placeholder](docs/demo-placeholder.gif)
 
@@ -106,6 +106,55 @@ ruff check backend src tests
 mypy --strict --ignore-missing-imports --follow-imports=skip backend/config.py backend/logging_config.py backend/run_manager.py
 pip-audit -r requirements.txt
 ```
+
+## Cross-dataset generalization (NF-UNSW-NB15)
+
+Cross-dataset evaluation is provided by `evaluate_cross_dataset.py`. The script loads the trained model from `models/ns_nids_model.pkl`, discovers the NF-UNSW-NB15 NetFlow download from the UQ NIDS dataset page when `--data_path` is absent, aligns columns to the NF-ToN-IoT-V2 feature schema, and saves per-class F1, macro-F1, and confusion-matrix output to `results/cross_dataset_results.json`.
+
+```bash
+venv\Scripts\python evaluate_cross_dataset.py --model_path models\ns_nids_model.pkl --data_path data\NF-UNSW-NB15-v3.csv
+```
+
+Latest local smoke run: `20,000` NF-UNSW-NB15-v3 rows, macro-F1 `0.0860`. The low transfer score is intentional evidence for the generalization gap and should be reported honestly unless the training protocol is extended with domain adaptation or feature recalibration.
+
+## Unknown-traffic handling
+
+### Unknown-attack rejection (confidence thresholding)
+
+The backend now computes softmax confidence and entropy before symbolic rule fusion. If `max_prob < tau`, the final label is `UNKNOWN`, the symbolic rule layer is skipped for that flow, and the batch rejection rate is logged. The default threshold is configured in `config.yaml`:
+
+```yaml
+unknown_confidence_threshold: 0.70
+```
+
+The same threshold is used by `ablation_study.py` and `calibration_analysis.py` unless `--tau` is provided.
+
+## Ablation study results
+
+Run:
+
+```bash
+venv\Scripts\python ablation_study.py --model_path models\ns_nids_model.pkl --data_path data\test_processed.csv
+```
+
+| Config | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: |
+| A) DNN only | 0.9232 | 0.9222 | 0.9215 |
+| B) DNN + rules | 0.9234 | 0.9224 | 0.9217 |
+| C) DNN + confidence | 0.8383 | 0.7615 | 0.7957 |
+| D) full system | 0.8383 | 0.7615 | 0.7957 |
+
+The CSV table is saved to `results/ablation_table.csv`.
+
+## Calibration analysis
+
+Run:
+
+```bash
+venv\Scripts\python calibration_analysis.py --model_path models\ns_nids_model.pkl --data_path data\test_processed.csv
+```
+
+The analysis computes 10-bin Expected Calibration Error (ECE) and writes a reliability diagram to `results/calibration_curve.png`. Latest local run: DNN-only ECE `0.0035`; proposed system ECE `0.0541`. The proposed ECE is higher because low-confidence rejection changes correctness without recalibrating the probability surface; this is useful paper evidence and a clear target for temperature scaling or conformal calibration.
 
 ## Citation
 

@@ -3,472 +3,167 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Neuro-Symbolic NIDS Research Dashboard</title>
-  <meta name="description" content="Interactive research dashboard for neuro-symbolic network intrusion detection and adaptive cyber defence." />
-  <!-- Prefer Flask-rendered path but mark for fallback if template not processed -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260503-advanced1" data-static-fallback="css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <title>Neuro-Symbolic NIDS Dashboard</title>
+  <meta name="description" content="Simple research dashboard for cross-dataset, uncertainty-aware neuro-symbolic intrusion detection." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
-    <aside class="side-nav">
-      <div class="brand">
+    <header class="topbar">
+      <a class="brand" href="#overview" aria-label="Neuro-Symbolic NIDS home">
         <span class="brand-mark">NS</span>
-        <div>
-          <h1>Neuro-Symbolic NIDS</h1>
-          <p>NF-ToN-IoT-V2 research console</p>
-        </div>
+        <span>
+          <strong>Neuro-Symbolic NIDS</strong>
+          <small>known-attack detection with UNKNOWN rejection</small>
+        </span>
+      </a>
+      <nav class="nav" aria-label="Dashboard sections">
+        <button class="nav-button active" data-target="overview">Overview</button>
+        <button class="nav-button" data-target="charts">Charts</button>
+        <button class="nav-button" data-target="matrix">Confusion Matrix</button>
+        <button class="nav-button" data-target="defence">Cyber Defence</button>
+        <button class="nav-button" data-target="architecture">3D System</button>
+      </nav>
+      <div class="actions">
+        <span id="run-all-feedback" class="run-status">Ready</span>
+        <button id="btn-refresh" class="btn ghost">Refresh</button>
+        <button id="btn-run-all" class="btn primary">Run All</button>
       </div>
+    </header>
 
-      <button class="nav-item active" data-view="overview">Overview</button>
-      <button class="nav-item" data-view="charts">Charts</button>
-      <button class="nav-item" data-view="matrix">Confusion Matrix</button>
-      <button class="nav-item" data-view="novelty">Reliability</button>
-      <button class="nav-item" data-view="defense">Cyber Defence</button>
-      <button class="nav-item" data-view="architecture">3D System View</button>
-
-      <div class="status-panel">
-        <span class="status-dot"></span>
-        <div>
-          <strong>Dashboard online</strong>
-          <small id="cache-status">Loading cached research data</small>
-        </div>
-      </div>
-    </aside>
-
-    <main class="workspace">
-      <header class="topbar">
-        <div>
-          <h2>Research-Grade Intrusion Detection Dashboard</h2>
-          <p>Fast browser-native visualisation, proposed-vs-existing comparison, and dynamic defence response.</p>
-        </div>
-        <div class="topbar-actions">
-          <div class="control-row compact-controls">
-            <label for="novelty-alpha">Alpha</label>
-            <input id="novelty-alpha" type="range" min="0.05" max="0.95" step="0.05" value="0.65" />
-            <input id="fusion-beta" type="number" min="0" max="0.95" step="0.05" value="0.35" title="Beta rule weight" />
-            <label for="seed-selector">Seed</label>
-            <input id="seed-selector" type="number" min="0" step="1" value="60" />
-            <label class="toggle-label" for="fusion-mode">Soft</label>
-            <input id="fusion-mode" type="checkbox" checked />
-          </div>
-          <span class="run-feedback" id="run-all-feedback" aria-live="polite">Ready</span>
-          <div class="run-progress" id="run-progress" hidden>
-            <div class="run-progress-meta">
-              <span id="run-progress-stage">Idle</span>
-              <strong id="run-progress-percent">0%</strong>
-            </div>
-            <div class="run-progress-track"><span id="run-progress-fill"></span></div>
-            <div class="run-stage-list" id="run-stage-list"></div>
-          </div>
-          <button class="btn ghost" id="btn-export-json">Export JSON</button>
-          <button class="btn ghost" id="btn-export-all-charts">Export Charts</button>
-          <button class="btn primary" id="btn-refresh">Refresh Analysis</button>
-          <button class="btn accent" id="btn-run-all">Run All</button>
-        </div>
-      </header>
-
-      <section class="view active" id="view-overview">
-        <div class="hero-grid">
-          <div class="research-summary">
-            <span class="section-label">Proposed model performance</span>
-            <h3 id="headline-score">Loading model evidence</h3>
-            <p>Neural predictions are refined by symbolic attack rules and translated into a defence action plan when malicious activity is detected.</p>
-            <div class="summary-actions">
-              <button class="btn primary" data-view-jump="charts">Inspect Charts</button>
-              <button class="btn ghost" data-view-jump="defense">Run Defence Scan</button>
+    <main>
+      <section id="overview" class="section active">
+        <div class="intro-grid">
+          <div class="intro-copy">
+            <h1>Cross-dataset, uncertainty-aware NIDS evidence in one clean view.</h1>
+            <p>The proposed system combines DNN probabilities, symbolic evidence, confidence rejection, calibration evidence, and cross-dataset transfer testing.</p>
+            <div class="summary-line">
+              <span>Contribution</span>
+              <strong>Known attacks are classified; low-confidence unseen traffic is rejected before rule fusion.</strong>
             </div>
           </div>
-          <div class="live-threat-card" id="threat-card">
-            <span class="section-label">Live sampled flow</span>
-            <h3 id="threat-title">No scan yet</h3>
-            <p id="threat-copy">Select Cyber Defence to analyse a flow and generate response controls.</p>
-            <div class="threat-meter">
-              <span id="threat-meter-fill"></span>
-            </div>
+          <div class="decision-panel" id="decision-panel">
+            <span class="eyeline">Current flow decision</span>
+            <h2 id="decision-title">Loading model evidence</h2>
+            <p id="decision-copy">A sampled flow will appear here with confidence, entropy, rule status, and recommended defence action.</p>
+            <div class="confidence-track"><span id="confidence-fill"></span></div>
           </div>
         </div>
 
-        <div class="kpi-grid" id="kpi-grid">
-          <article class="kpi"><span>Accuracy lift</span><strong id="kpi-lift">--</strong><small>Neuro-symbolic vs baseline</small></article>
-          <article class="kpi"><span>Macro F1</span><strong id="kpi-f1">--</strong><small>Journal metric</small></article>
-          <article class="kpi"><span>Attack classes</span><strong id="kpi-classes">--</strong><small>Multi-class threat taxonomy</small></article>
-          <article class="kpi"><span>Test samples</span><strong id="kpi-samples">--</strong><small>Cached for fast navigation</small></article>
+        <div class="metric-strip">
+          <article><span>Proposed F1</span><strong id="metric-proposed-f1">--</strong><small>live window</small></article>
+          <article><span>DNN F1</span><strong id="metric-existing-f1">--</strong><small>baseline</small></article>
+          <article><span>UNKNOWN rate</span><strong id="metric-unknown">--</strong><small>tau = 0.70</small></article>
+          <article><span>External F1</span><strong id="metric-cross">--</strong><small>NF-UNSW-NB15</small></article>
         </div>
 
-        <section class="panel impact-panel">
-          <div class="panel-head">
-            <div><h3>Neuro-Symbolic Impact Proof</h3><p>Live rule instrumentation, prediction deltas, and example corrections from the selected window.</p></div>
-            <strong class="verdict" id="impact-verdict">pending</strong>
-          </div>
-          <div class="impact-grid">
-            <div class="impact-stat"><span>Rules triggered</span><strong id="impact-trigger-rate">--</strong><small id="impact-trigger-count">--</small></div>
-            <div class="impact-stat"><span>Predictions changed</span><strong id="impact-change-rate">--</strong><small id="impact-change-count">--</small></div>
-            <div class="impact-stat"><span>Delta accuracy</span><strong id="impact-delta-accuracy">--</strong><small>NS minus MLP</small></div>
-            <div class="impact-stat"><span>Delta macro F1</span><strong id="impact-delta-f1">--</strong><small>NS minus MLP</small></div>
-            <div class="impact-stat"><span>Attack recall delta</span><strong id="impact-attack-recall">--</strong><small>Binary attack recall</small></div>
-            <div class="impact-stat"><span>FN rescues</span><strong id="impact-fn-rescues">--</strong><small>Benign to attack</small></div>
-          </div>
-          <div class="example-list" id="impact-examples"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div><h3>Backend Engine Status</h3><p>Live Flask/model/data state used by the dashboard.</p></div>
-            <button class="icon-btn" id="btn-backend-refresh">Refresh</button>
-          </div>
-          <div class="backend-grid" id="backend-grid"></div>
-        </section>
-
-        <div class="panel-grid two">
+        <div class="split">
           <section class="panel">
             <div class="panel-head">
-              <div><h3>Baseline vs Neuro-Symbolic</h3><p>Core metrics recomputed for the selected backend window.</p></div>
-              <button class="icon-btn" data-export-chart="comparisonChart">PNG</button>
+              <h2>Existing vs Proposed</h2>
+              <p>Accuracy, precision, recall, and F1 from backend predictions.</p>
             </div>
-            <div class="chart-box"><canvas id="chart-comparison"></canvas></div>
+            <canvas id="metricChart" class="chart-canvas"></canvas>
           </section>
           <section class="panel">
             <div class="panel-head">
-              <div><h3>Detected Class Distribution</h3><p>Proposed model labels in the current analysis window.</p></div>
-              <button class="icon-btn" data-export-chart="distributionChart">PNG</button>
+              <h2>What Makes It Novel</h2>
+              <p>Signals that move the project beyond a plain DNN classifier.</p>
             </div>
-            <div class="chart-box"><canvas id="chart-distribution"></canvas></div>
+            <ul class="novelty-list">
+              <li><strong>Confidence gate:</strong> low-confidence flows become <code>UNKNOWN</code> before symbolic rules.</li>
+              <li><strong>Rule trace:</strong> symbolic signatures are auditable evidence, not hidden post-processing.</li>
+              <li><strong>Transfer test:</strong> NF-UNSW-NB15 generalization is measured and saved.</li>
+              <li><strong>Calibration:</strong> ECE and reliability curves quantify trustworthiness.</li>
+            </ul>
           </section>
         </div>
       </section>
 
-      <section class="view" id="view-charts">
-        <div class="section-header">
-          <div>
-            <span class="section-label">Dynamic charts</span>
-            <h3>Dashboard-Native Research Graphs</h3>
-            <p>Backend-computed charts comparing the neuro-symbolic model with the baseline. No external plot window is required.</p>
-          </div>
-          <div class="control-row">
-            <label for="sample-window">Window</label>
-            <input id="sample-window" type="range" min="100" max="2000" step="100" value="750" />
-            <span id="sample-window-value">750</span>
-          </div>
+      <section id="charts" class="section">
+        <div class="section-heading">
+          <span>5-6 paper-ready graphs</span>
+          <h2>Comparison graphs for the manuscript story</h2>
+          <p>These charts stay intentionally simple: each one supports a specific claim about contribution, novelty, or remaining research gap.</p>
         </div>
-
-        <section class="panel chart-explorer-panel">
-          <div class="panel-head">
-            <div><h3>Configurable Run Chart</h3><p>Live chart controls for the current Run All window.</p></div>
-            <div class="control-row">
-              <button class="icon-btn" id="btn-chart-export-png">PNG</button>
-              <button class="icon-btn" id="btn-chart-export-svg">SVG</button>
-              <button class="icon-btn" id="btn-chart-export-csv">CSV</button>
-            </div>
-          </div>
-          <div class="chart-control-grid">
-            <label>Type<select id="chart-type-selector">
-              <option value="line">Line</option>
-              <option value="bar">Bar</option>
-              <option value="area">Area</option>
-              <option value="scatter">Scatter</option>
-              <option value="heatmap">Heatmap</option>
-              <option value="confusion-matrix">Confusion Matrix</option>
-              <option value="roc">ROC</option>
-              <option value="pr">PR Curve</option>
-              <option value="feature-importance">Feature Importance</option>
-              <option value="traffic-over-time">Traffic Over Time</option>
-              <option value="attack-class-distribution">Attack-Class Distribution</option>
-            </select></label>
-            <label>X Axis<select id="chart-x-selector"></select></label>
-            <label>Y Axis<select id="chart-y-selector"></select></label>
-            <label>Attack Class<select id="chart-class-filter"></select></label>
-            <label>Start<input id="chart-range-start" type="number" min="0" value="0" /></label>
-            <label>End<input id="chart-range-end" type="number" min="0" value="750" /></label>
-            <label>Top N<input id="chart-top-n" type="range" min="3" max="30" step="1" value="10" /></label>
-            <strong id="chart-top-n-value">10</strong>
-          </div>
-          <div class="plotly-box" id="chart-explorer"></div>
-        </section>
-
-        <div class="charts-board">
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Neuro-Symbolic Impact Curve</h3><p>Macro F1 and attack-recall lift across recomputed evaluation windows.</p></div>
-              <button class="icon-btn" data-export-chart="analysisComparisonChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-analysis-comparison"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Per-Class F1</h3><p>Class-wise baseline and proposed model comparison.</p></div>
-              <button class="icon-btn" data-export-chart="perClassChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-per-class"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Confidence Histogram</h3><p>Prediction confidence distribution from backend probabilities.</p></div>
-              <button class="icon-btn" data-export-chart="confidenceChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-confidence"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Attack Detection Coverage</h3><p>True attacks, detections, and containment candidates.</p></div>
-              <button class="icon-btn" data-export-chart="detectionChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-detection"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Class Error Rate</h3><p>Where the proposed model still needs improvement.</p></div>
-              <button class="icon-btn" data-export-chart="errorRateChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-error-rate"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Micro-Average ROC</h3><p>One-vs-rest probability evidence, AUC shown in chart title.</p></div>
-              <button class="icon-btn" data-export-chart="rocChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-roc"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Symbolic Rule Trace</h3><p>Rule firing frequency in the analysed sample window.</p></div>
-              <button class="icon-btn" data-export-chart="rulesChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-rules"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Baseline vs Proposed Delta</h3><p>Metric difference from live prediction arrays.</p></div>
-              <button class="icon-btn" data-export-chart="differenceChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-difference"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Attack Recall Gain</h3><p>Per-attack-class recall before and after symbolic fusion.</p></div>
-              <button class="icon-btn" data-export-chart="attackRecallGainChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-attack-recall-gain"></canvas></div>
-          </section>
+        <div id="chart-explorer">
+          <span class="chart-fallback">Dashboard charts rendered below with browser-native canvas.</span>
         </div>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div><h3>Sample-Wise Audit Table</h3><p>Compact evidence table for model comparison.</p></div>
-            <button class="icon-btn" data-export-table="audit">CSV</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>#</th><th>True Label</th><th>Existing System</th><th>Proposed Model</th><th>Changed</th><th>Rule Strength</th><th>Risk</th></tr></thead>
-              <tbody id="audit-body"></tbody>
-            </table>
-          </div>
-        </section>
+        <div class="chart-grid">
+          <section class="panel"><div class="panel-head"><h2>1. Metric Comparison</h2><p>Existing DNN against proposed neuro-symbolic output.</p></div><canvas id="comparisonChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>2. Per-Class F1</h2><p>Which attack types benefit or remain difficult.</p></div><canvas id="classChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>3. Ablation Study</h2><p>DNN, rules, confidence, and the full system.</p></div><canvas id="ablationChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>4. Generalization Gap</h2><p>Internal NF-ToN-IoT-V2 F1 vs external NF-UNSW-NB15 F1.</p></div><canvas id="generalizationChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>5. Detection Coverage</h2><p>True attacks, detected attacks, and containment candidates.</p></div><canvas id="coverageChart" class="chart-canvas"></canvas></section>
+          <section class="panel"><div class="panel-head"><h2>6. Calibration Evidence</h2><p>Reliability and ECE for DNN-only and proposed outputs.</p></div><canvas id="calibrationChart" class="chart-canvas"></canvas></section>
+        </div>
       </section>
 
-      <section class="view" id="view-matrix">
-        <div class="section-header">
-          <div>
-            <span class="section-label">Confusion matrix</span>
-            <h3>Class-Level Proposed Model Evidence</h3>
-            <p>Dedicated matrix view for journal figures, error analysis, and class-wise inspection.</p>
-          </div>
-          <div class="control-row">
-            <button class="btn ghost" id="btn-export-matrix-csv">Export CSV</button>
-          </div>
+      <section id="matrix" class="section">
+        <div class="section-heading">
+          <span>Error analysis</span>
+          <h2>Confusion matrix for the proposed system</h2>
+          <p>The matrix is compact enough for dashboard inspection and precise enough to guide paper discussion.</p>
         </div>
-
         <section class="panel matrix-panel">
-          <div class="panel-head">
-            <div><h3>Proposed Neuro-Symbolic Confusion Matrix</h3><p>Rows are true labels; columns are predicted labels.</p></div>
-            <button class="icon-btn" data-export-table="matrix">CSV</button>
-          </div>
-          <div class="matrix-wrap matrix-large" id="matrix-wrap"></div>
+          <div id="matrix-wrap" class="matrix-wrap" aria-label="Confusion matrix"></div>
         </section>
       </section>
 
-      <section class="view" id="view-novelty">
-        <div class="section-header">
-          <div>
-            <span class="section-label">Trustworthy IDS novelty layer</span>
-            <h3>Uncertainty, Conformal Prediction, and OOD Drift</h3>
-            <p>Reliability evidence generated by the Flask backend for publication-grade validation.</p>
-          </div>
-          <div class="control-row">
-            <button class="btn primary" id="btn-refresh-novelty">Refresh Reliability</button>
-          </div>
+      <section id="defence" class="section">
+        <div class="section-heading">
+          <span>Analyst-facing evidence</span>
+          <h2>Cyber Defence</h2>
+          <p>Inspect a sampled flow, see whether the UNKNOWN gate fired, and review the evidence cards.</p>
         </div>
-
-        <div class="kpi-grid">
-          <article class="kpi"><span>ECE</span><strong id="novelty-ece">--</strong><small>Calibration error</small></article>
-          <article class="kpi"><span>Coverage</span><strong id="novelty-coverage">--</strong><small>Conformal empirical coverage</small></article>
-          <article class="kpi"><span>OOD Rate</span><strong id="novelty-ood">--</strong><small>Standardized drift flag rate</small></article>
-          <article class="kpi"><span>Review Queue</span><strong id="novelty-review">--</strong><small>Uncertain/OOD flows</small></article>
+        <div class="defence-controls">
+          <label for="flow-index">Flow index</label>
+          <input id="flow-index" type="number" min="0" value="0" />
+          <button id="btn-analyse-flow" class="btn primary">Analyse Flow</button>
         </div>
-
-        <div class="charts-board">
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Conformal Coverage</h3><p>Target and observed reliability for the selected alpha.</p></div>
-              <button class="icon-btn" data-export-chart="conformalChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-conformal"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Calibration Curve</h3><p>Confidence vs observed accuracy by probability bin.</p></div>
-              <button class="icon-btn" data-export-chart="calibrationChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-calibration"></canvas></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div><h3>Top Drift Features</h3><p>Mean absolute standardized shift from reference traffic.</p></div>
-              <button class="icon-btn" data-export-chart="driftChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-drift"></canvas></div>
-          </section>
-        </div>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div><h3>Analyst Review Queue</h3><p>Flows selected by uncertainty or OOD signals.</p></div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>#</th><th>True</th><th>Predicted</th><th>Confidence</th><th>Entropy</th><th>OOD Score</th><th>Reason</th></tr></thead>
-              <tbody id="novelty-review-body"></tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-
-      <section class="view" id="view-defense">
-        <div class="section-header">
-          <div>
-            <span class="section-label">Adaptive cyber defence</span>
-            <h3>Detect, Warn, and Contain</h3>
-            <p>When an attack is detected, the dashboard raises a warning and proposes immediate containment actions.</p>
-          </div>
-          <div class="control-row">
-            <input id="flow-index" type="number" min="0" value="0" />
-            <button class="btn ghost" id="btn-random-flow">Random Flow</button>
-            <button class="btn primary" id="btn-analyse-flow">Analyse</button>
-          </div>
-        </div>
-
-        <div class="defense-grid">
-          <section class="warning-panel" id="warning-panel">
-            <span class="section-label">Threat decision</span>
-            <h3 id="decision-label">Waiting for analysis</h3>
-            <p id="decision-action">Choose a flow to inspect its prediction, symbolic explanation, and defence action.</p>
-            <button class="btn primary" id="btn-contain-flow">Simulate Containment</button>
-            <div class="incident-strip" id="incident-strip">No backend incident created yet.</div>
+        <div class="split">
+          <section class="warning-card" id="warning-card">
+            <span class="eyeline">Defence recommendation</span>
+            <h2 id="warning-title">No flow analysed yet</h2>
+            <p id="warning-copy">Run an analysis to see the final label, action, and playbook.</p>
             <ul id="playbook-list"></ul>
           </section>
           <section class="panel">
-            <div class="panel-head">
-              <div><h3>Class Probabilities</h3><p>Baseline confidence before symbolic refinement.</p></div>
-              <button class="icon-btn" data-export-chart="probabilityChart">PNG</button>
-            </div>
-            <div class="chart-box"><canvas id="chart-probabilities"></canvas></div>
+            <div class="panel-head"><h2>Class Probabilities</h2><p>DNN softmax surface before rejection or rule fusion.</p></div>
+            <canvas id="probabilityChart" class="chart-canvas"></canvas>
           </section>
         </div>
-
         <section class="panel">
-          <div class="panel-head">
-            <div><h3>Flow Evidence</h3><p>Prediction trace and high-signal feature values.</p></div>
-            <button class="icon-btn" id="btn-export-flow">CSV</button>
-          </div>
-          <div class="evidence-grid" id="evidence-grid"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div><h3>Backend Defence Timeline</h3><p>Incident state stored and updated by Flask.</p></div>
-            <button class="icon-btn" id="btn-defense-status">Status</button>
-          </div>
-          <div class="timeline" id="defense-timeline"></div>
+          <div class="panel-head"><h2>Evidence Cards</h2><p>Compact explainability and flow-context cards for the selected sample.</p></div>
+          <div id="evidence-grid" class="evidence-grid"></div>
         </section>
       </section>
 
-      <section class="view" id="view-architecture">
-        <div class="section-header">
-          <div>
-            <span class="section-label">Dynamic system architecture</span>
-            <h3>How the Neuro-Symbolic Defence Pipeline Works</h3>
-            <p>A live WebGL scene shows telemetry, inference, rule evidence, and containment as an animated decision pipeline.</p>
-          </div>
-          <div class="control-row">
-            <button class="btn ghost arch-step active" data-stage="0">Flow</button>
-            <button class="btn ghost arch-step" data-stage="1">Neural</button>
-            <button class="btn ghost arch-step" data-stage="2">Symbolic</button>
-            <button class="btn ghost arch-step" data-stage="3">Defence</button>
-          </div>
+      <section id="architecture" class="section architecture-section">
+        <div class="architecture-copy">
+          <span>Advanced 3D system view</span>
+          <h2>Why the proposed system is stronger than the existing DNN-only baseline</h2>
+          <p>The scene shows the baseline path as a single probability tunnel. The proposed path adds confidence rejection, symbolic rule evidence, and response control before an analyst acts.</p>
         </div>
-
-        <div class="architecture-stage">
-          <div class="scene" id="scene">
-            <canvas id="architecture-canvas" aria-label="Animated 3D neuro-symbolic defence pipeline"></canvas>
-            <div class="arch-legend">
-              <span><i class="legend-flow"></i>Telemetry</span>
-              <span><i class="legend-rule"></i>Rule evidence</span>
-              <span><i class="legend-defense"></i>Containment</span>
-            </div>
-            <div class="arch-live">
-              <div><span>Window</span><strong id="arch-window">--</strong></div>
-              <div><span>Rule triggers</span><strong id="arch-rules">--</strong></div>
-              <div><span>Changes</span><strong id="arch-changes">--</strong></div>
-            </div>
-            <div class="packet packet-a"></div>
-            <div class="packet packet-b"></div>
-            <div class="packet packet-c"></div>
-            <div class="node n0"><strong>NetFlow</strong><span>rates, bytes, duration</span></div>
-            <div class="node n1"><strong>Neural Core</strong><span>probability manifold</span></div>
-            <div class="node n2"><strong>Rule Lattice</strong><span>auditable constraints</span></div>
-            <div class="node n3"><strong>Response Mesh</strong><span>containment controls</span></div>
-            <div class="arch-terminal" id="arch-terminal">
-              <span>LIVE PIPELINE</span>
-              <strong id="arch-terminal-stage">Flow ingestion</strong>
-              <code id="arch-terminal-code">stream.normalize(window)</code>
-            </div>
+        <div class="stage-shell">
+          <canvas id="architecture-canvas"></canvas>
+          <div class="stage-labels">
+            <button class="stage active" data-stage="0">NetFlow</button>
+            <button class="stage" data-stage="1">DNN</button>
+            <button class="stage" data-stage="2">UNKNOWN Gate</button>
+            <button class="stage" data-stage="3">Symbolic Rules</button>
+            <button class="stage" data-stage="4">Defence</button>
           </div>
-          <aside class="architecture-notes">
-            <h3 id="stage-title">Flow ingestion</h3>
-            <p id="stage-copy">Telemetry is normalised into NF-ToN-IoT-V2 NetFlow features before neural inference.</p>
-            <ol id="stage-steps"></ol>
-          </aside>
+          <div class="stage-note" id="stage-note">
+            <strong>NetFlow feature stream</strong>
+            <span>Packets, bytes, protocol, duration, TCP flags, and DNS fields enter the model.</span>
+          </div>
         </div>
       </section>
     </main>
   </div>
-  <div class="toast-stack" id="toast-stack" aria-live="assertive"></div>
 
-  <!-- dashboard.js: use Flask url_for when templated; otherwise fallback injected below -->
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260503-advanced1" data-dashboard-src="true"></script>
-
-  <!-- Fallback loader: if the Jinja url_for tokens were not rendered (e.g. file:// or static preview),
-       replace/inject local static paths so CSS/JS actually load and event listeners can attach.
-       This runs after the DOM markup and will not interfere when Flask renders url_for as expected. -->
-  <script>
-    (function(){
-      function needsFallback(str){ return typeof str === 'string' && str.indexOf('{' + '{') !== -1; }
-      // CSS fallback
-      var cssLink = document.querySelector('link[data-static-fallback="css"]');
-      if (cssLink && needsFallback(cssLink.getAttribute('href'))) {
-        cssLink.href = 'static/css/style.css?v=20260503-advanced1';
-      }
-      // JS fallback: if the templated script src was not rendered, inject a working script tag
-      var dashScript = document.querySelector('script[data-dashboard-src="true"]');
-      if (dashScript && needsFallback(dashScript.getAttribute('src'))) {
-        var s = document.createElement('script');
-        s.src = 'static/js/dashboard.js?v=20260503-advanced1';
-        s.defer = true;
-        document.body.appendChild(s);
-      }
-    })();
-  </script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>

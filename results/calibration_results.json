@@ -1,0 +1,17 @@
+{
+  "model_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\ns_nids_model.pkl",
+  "data_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\data\\test_processed.csv",
+  "tau": 0.7,
+  "bins": 10,
+  "dnn_only": {
+    "ece": 0.003475233224981843,
+    "mean_confidence": 0.9227020260903689,
+    "accuracy": 0.9222422352062558
+  },
+  "proposed": {
+    "ece": 0.054066404755341066,
+    "mean_confidence": 0.9227020260903689,
+    "accuracy": 0.8702719325220752
+  },
+  "plot": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\calibration_curve.png"
+}

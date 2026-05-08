@@ -18,6 +18,7 @@ from src.neuro_symbolic import apply_symbolic_rules, apply_symbolic_rules_batch,
 from src.project_paths import (
     METRICS_PATH,
     MODEL_PATH,
+    PROJECT_ROOT,
     ROBUST_MODEL_PATH,
     TEST_PATH,
     TRAIN_PATH,
@@ -34,6 +35,9 @@ ROBUST_PATH = ROBUST_MODEL_PATH
 DEFAULT_ALPHA = 0.65
 DEFAULT_BETA = 0.35
 DEFAULT_SEED = 60
+DEFAULT_UNKNOWN_THRESHOLD = 0.70
+UNKNOWN_LABEL = "UNKNOWN"
+CONFIG_YAML_PATH = PROJECT_ROOT / "config.yaml"
 
 _base_model = None
 _robust_model = None
@@ -63,6 +67,7 @@ class EvalConfig(NamedTuple):
     beta: float
     fusion_mode: str
     seed: int
+    unknown_threshold: float
 
 
 def _coerce_int(value: Any, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
@@ -116,6 +121,7 @@ def evaluation_config(
     if mode not in {"hard", "soft"}:
         mode = SYMBOLIC_FUSION_MODE
     clean_seed = _coerce_int(seed, default=DEFAULT_SEED, minimum=0, maximum=2_147_483_647)
+    unknown_threshold = unknown_confidence_threshold()
     return EvalConfig(
         window_size=clean_window,
         flow_index=clean_flow,
@@ -123,6 +129,7 @@ def evaluation_config(
         beta=round(clean_beta, 6),
         fusion_mode=mode,
         seed=clean_seed,
+        unknown_threshold=round(unknown_threshold, 6),
     )
 
 
@@ -134,6 +141,7 @@ def _config_key(config: EvalConfig) -> tuple[Any, ...]:
         round(config.beta, 6),
         config.fusion_mode,
         config.seed,
+        round(config.unknown_threshold, 6),
     )
 
 
@@ -145,6 +153,7 @@ def _config_public(config: EvalConfig) -> dict[str, Any]:
         "beta": json_number(config.beta, 6),
         "fusion_mode": config.fusion_mode,
         "seed": config.seed,
+        "unknown_threshold": json_number(config.unknown_threshold, 6),
     }
 
 
@@ -173,6 +182,41 @@ def _require_file(path: str | Path, description: str) -> None:
         raise ResourceLoadError(f"Missing {description}: {path}")
     if not path.is_file():
         raise ResourceLoadError(f"Invalid {description} path, expected a file: {path}")
+
+
+def _read_simple_yaml(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def unknown_confidence_threshold() -> float:
+    values = _read_simple_yaml(CONFIG_YAML_PATH)
+    raw = values.get("unknown_confidence_threshold", values.get("tau", DEFAULT_UNKNOWN_THRESHOLD))
+    return _coerce_float(raw, DEFAULT_UNKNOWN_THRESHOLD, 0.0, 1.0)
+
+
+def _unknown_rejection(probabilities: np.ndarray, threshold: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    confidence = np.max(probabilities, axis=1)
+    entropy = _entropy(probabilities)
+    rejected = confidence < threshold
+    return confidence, entropy, rejected
+
+
+def _empty_rule_trace(reason: str) -> list[dict[str, Any]]:
+    return [{
+        "rule_id": "NONE",
+        "applied": False,
+        "strength": 0.0,
+        "reason": reason,
+    }]
 
 
 def _clear_caches() -> None:
@@ -637,20 +681,29 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
     model_input = _model_input(_base_model, sample_frame)
     base_probs = _base_model.predict_proba(model_input)[0]
     base_pred = str(_classes[int(np.argmax(base_probs))])
-    ns_label, fired_rules, strength = apply_symbolic_rules(
-        sample,
-        base_pred,
-        predicted_probs=base_probs,
-        class_labels=_classes,
-        rule_context=_get_symbolic_context(),
-        fusion_mode=config.fusion_mode,
-        alpha=config.alpha,
-        beta=config.beta,
-        confidence_threshold=0.55 + 0.30 * config.alpha,
-        strong_rule_threshold=0.72 + 0.20 * config.alpha,
-    )
-    ns_label = str(ns_label)
     confidence = float(np.max(base_probs))
+    entropy = float(_entropy(np.asarray([base_probs]))[0])
+    rejected_unknown = confidence < config.unknown_threshold
+    if rejected_unknown:
+        ns_label = UNKNOWN_LABEL
+        fired_rules = _empty_rule_trace(
+            f"Neural confidence {confidence:.3f} is below unknown threshold {config.unknown_threshold:.3f}; symbolic layer skipped."
+        )
+        strength = 0.0
+    else:
+        ns_label, fired_rules, strength = apply_symbolic_rules(
+            sample,
+            base_pred,
+            predicted_probs=base_probs,
+            class_labels=_classes,
+            rule_context=_get_symbolic_context(),
+            fusion_mode=config.fusion_mode,
+            alpha=config.alpha,
+            beta=config.beta,
+            confidence_threshold=0.55 + 0.30 * config.alpha,
+            strong_rule_threshold=0.72 + 0.20 * config.alpha,
+        )
+        ns_label = str(ns_label)
     applied = [rule for rule in fired_rules if bool(rule.get("applied"))]
     changed_prediction = ns_label != base_pred
     explanation = (
@@ -677,6 +730,10 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
         "final_label": ns_label,
         "robust_pred": robust_pred,
         "confidence": json_number(confidence, 6),
+        "entropy": json_number(entropy, 6),
+        "unknown_threshold": json_number(config.unknown_threshold, 6),
+        "rejected_unknown": bool(rejected_unknown),
+        "rule_layer_skipped": bool(rejected_unknown),
         "risk": "attack" if is_attack(ns_label) else "benign",
         "defense": defense_action(ns_label, confidence, fired_rules),
         "fired_rules": fired_rules,
@@ -958,29 +1015,63 @@ def _evaluate_window(
     true_arr = _y_test.iloc[indices].astype(str).tolist()
     model_input = _model_input(_base_model, subset_X)
     probabilities = _base_model.predict_proba(model_input)
-    confidence = np.max(probabilities, axis=1)
-    base_preds = np.asarray([str(x) for x in _base_model.predict(model_input)])
-    ns_preds, rule_traces, strengths = apply_symbolic_rules_batch(
-        subset_X,
-        base_preds,
-        probabilities,
-        class_labels=_classes,
-        rule_context=_get_symbolic_context(),
-        fusion_mode=config.fusion_mode,
-        alpha=config.alpha,
-        beta=config.beta,
-        confidence_threshold=0.55 + 0.30 * config.alpha,
-        strong_rule_threshold=0.72 + 0.20 * config.alpha,
+    confidence, entropy, rejected_unknown = _unknown_rejection(probabilities, config.unknown_threshold)
+    base_preds = np.asarray([str(_classes[int(np.argmax(row))]) for row in probabilities])
+    ns_preds = base_preds.astype(object).copy()
+    rule_traces = [
+        _empty_rule_trace("No symbolic rule triggered; neural prediction retained.")
+        for _ in range(len(subset_X))
+    ]
+    strengths = [0.0 for _ in range(len(subset_X))]
+    accepted_mask = ~rejected_unknown
+    if accepted_mask.any():
+        accepted_preds, accepted_rules, accepted_strengths = apply_symbolic_rules_batch(
+            subset_X.loc[accepted_mask].reset_index(drop=True),
+            base_preds[accepted_mask],
+            probabilities[accepted_mask],
+            class_labels=_classes,
+            rule_context=_get_symbolic_context(),
+            fusion_mode=config.fusion_mode,
+            alpha=config.alpha,
+            beta=config.beta,
+            confidence_threshold=0.55 + 0.30 * config.alpha,
+            strong_rule_threshold=0.72 + 0.20 * config.alpha,
+        )
+        accepted_positions = np.flatnonzero(accepted_mask)
+        for local_idx, row_idx in enumerate(accepted_positions):
+            ns_preds[row_idx] = str(accepted_preds[local_idx])
+            rule_traces[row_idx] = accepted_rules[local_idx]
+            strengths[row_idx] = float(accepted_strengths[local_idx])
+    for row_idx in np.flatnonzero(rejected_unknown):
+        ns_preds[row_idx] = UNKNOWN_LABEL
+        strengths[row_idx] = 0.0
+        rule_traces[row_idx] = _empty_rule_trace(
+            f"Neural confidence {confidence[row_idx]:.3f} is below unknown threshold {config.unknown_threshold:.3f}; symbolic layer skipped."
+        )
+    rejection_rate = float(np.mean(rejected_unknown)) if len(rejected_unknown) else 0.0
+    LOGGER.info(
+        "Unknown-traffic rejection: %s/%s flows rejected at tau=%.3f (%.2f%%)",
+        int(rejected_unknown.sum()),
+        len(rejected_unknown),
+        config.unknown_threshold,
+        rejection_rate * 100.0,
     )
     ns_preds = np.asarray([str(label) for label in ns_preds])
     proposed_probabilities = _fused_probabilities(probabilities, ns_preds, rule_traces, config)
 
+    ns_labels = list(_classes)
+    if np.any(ns_preds == UNKNOWN_LABEL):
+        ns_labels.append(UNKNOWN_LABEL)
     base_report = classification_report(true_arr, base_preds, labels=_classes, output_dict=True, zero_division=0)
-    ns_report = classification_report(true_arr, ns_preds, labels=_classes, output_dict=True, zero_division=0)
+    ns_report = classification_report(true_arr, ns_preds, labels=ns_labels, output_dict=True, zero_division=0)
     base_acc = float(np.mean(base_preds == np.asarray(true_arr)))
     ns_acc = float(np.mean(ns_preds == np.asarray(true_arr)))
     labels = _classes
     analytics = _rule_analytics(true_arr, base_preds, ns_preds, rule_traces, strengths, base_report, ns_report)
+    analytics["unknown_threshold"] = json_number(config.unknown_threshold, 6)
+    analytics["unknown_rejection_count"] = int(rejected_unknown.sum())
+    analytics["unknown_rejection_rate"] = json_number(rejection_rate, 6)
+    analytics["mean_entropy"] = json_number(float(np.mean(entropy)), 6)
     base_macro_f1 = float(base_report.get("macro avg", {}).get("f1-score", 0.0))
     ns_macro_f1 = float(ns_report.get("macro avg", {}).get("f1-score", 0.0))
     analytics["delta_accuracy"] = json_number(ns_acc - base_acc, 6)
@@ -1004,6 +1095,10 @@ def _evaluate_window(
             "changed": bool(base_preds[i] != ns_preds[i]),
             "changed_prediction": bool(base_preds[i] != ns_preds[i]),
             "rule_strength": json_number(float(strengths[i]), 6),
+            "confidence": json_number(float(confidence[i]), 6),
+            "entropy": json_number(float(entropy[i]), 6),
+            "rejected_unknown": bool(rejected_unknown[i]),
+            "rule_layer_skipped": bool(rejected_unknown[i]),
             "fired_rules": [
                 rule["rule_id"]
                 for rule in rule_traces[i]
@@ -1066,12 +1161,13 @@ def _evaluate_window(
         },
         "reports": {"baseline_mlp": base_report, "neuro_symbolic": ns_report},
         "classes": labels,
-        "confusion_matrix": confusion_matrix(true_arr, ns_preds, labels=labels).tolist(),
+        "evaluation_labels": ns_labels,
+        "confusion_matrix": confusion_matrix(true_arr, ns_preds, labels=ns_labels).tolist(),
         "class_distribution": {
-            "labels": labels,
-            "values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(labels, fill_value=0).tolist()],
-            "baseline_values": [int(v) for v in pd.Series(base_preds).value_counts().reindex(labels, fill_value=0).tolist()],
-            "proposed_values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(labels, fill_value=0).tolist()],
+            "labels": ns_labels,
+            "values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
+            "baseline_values": [int(v) for v in pd.Series(base_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
+            "proposed_values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
         },
         "rule_hits": {"labels": list(active_rule_counts.keys()), "values": [int(v) for v in active_rule_counts.values()]},
         "rule_analytics": analytics,
@@ -1103,6 +1199,8 @@ def _evaluate_window(
         "probabilities": probabilities,
         "proposed_probabilities": proposed_probabilities,
         "confidence": confidence,
+        "entropy": entropy,
+        "rejected_unknown": rejected_unknown,
         "base_preds": base_preds,
         "ns_preds": ns_preds,
         "rule_traces": rule_traces,
@@ -1241,7 +1339,14 @@ def chart_data(
 
     logs: list[str] = []
     _log_chart_step(logs, f"Chart request received with parameters {_config_public(config)}.")
-    evaluated = _evaluate_window(*config)
+    evaluated = _evaluate_window(
+        config.window_size,
+        config.flow_index,
+        config.alpha,
+        config.beta,
+        config.fusion_mode,
+        config.seed,
+    )
     analysis = evaluated["public"]
     true_arr = evaluated["true_arr"]
     probabilities = evaluated["probabilities"]

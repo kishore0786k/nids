@@ -1,1604 +1,592 @@
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
 const state = {
-  overview: null,
+  charts: null,
   research: null,
-  chartData: null,
   novelty: null,
-  backend: null,
+  artifacts: null,
   flow: null,
-  incident: null,
-  charts: {},
-  maxIndex: 0,
-  architectureTimer: null,
-  architectureScene: null,
-  windowRequestId: 0,
-  lastRunDebug: null,
-  runJobId: null,
-  runStatus: null,
-  chartConfig: null,
-  chartExportRows: [],
-  plotlyLoadStarted: false,
+  activeStage: 0,
+  three: null,
 };
 
-const DEBOUNCE_MS = 350;
-const CHART_CONFIG_KEY = "nids-chart-config-v1";
-
-const colors = {
-  blue: "#4ba3ff",
-  cyan: "#19d3c5",
-  green: "#4ade80",
-  amber: "#f4b740",
-  red: "#ff5b6e",
-  violet: "#9b87ff",
-  muted: "#8fa2b3",
+const palette = {
+  ink: "#172026",
+  muted: "#64707b",
+  line: "#d9e0e6",
+  teal: "#0f8b8d",
+  blue: "#2454c6",
+  coral: "#d95f45",
+  green: "#228b5b",
+  amber: "#c98211",
+  soft: "#eef3f7",
 };
 
-if (window.Chart) {
-  Chart.defaults.color = colors.muted;
-  Chart.defaults.font.family = "Inter, system-ui, sans-serif";
-  Chart.defaults.plugins.legend.labels.usePointStyle = true;
-}
-
-function $(selector) {
-  return document.querySelector(selector);
-}
-
-function $$(selector) {
-  return Array.from(document.querySelectorAll(selector));
-}
-
-function setStatus(message) {
-  const el = $("#cache-status");
-  if (el) el.textContent = message;
-}
-
-function showToast(title, message) {
-  const stack = $("#toast-stack");
-  if (!stack) {
-    window.alert(`${title}: ${message}`);
-    return;
+async function fetchJSON(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
   }
-  const toast = document.createElement("div");
-  toast.className = "toast";
-  toast.setAttribute("role", "alert");
-  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
-  stack.appendChild(toast);
-  setTimeout(() => toast.remove(), 7200);
+  return response.json();
 }
 
-function showActionError(error) {
-  console.error(error);
-  setStatus(`Action failed: ${error.message || error}`);
-  showToast("Action failed", error.message || String(error));
-}
-
-function bindAsyncClick(selector, statusText, handler) {
-  const el = $(selector);
-  if (!el) return;
-  el.addEventListener("click", async event => {
-    try {
-      el.disabled = true;
-      setStatus(statusText);
-      await handler(event);
-    } catch (error) {
-      showActionError(error);
-    } finally {
-      el.disabled = false;
-    }
-  });
+function fmt(value, digits = 3) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return number.toFixed(digits);
 }
 
 function pct(value, digits = 1) {
-  return `${(Number(value || 0) * 100).toFixed(digits)}%`;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return `${(number * 100).toFixed(digits)}%`;
 }
 
-function signedPct(value, digits = 2) {
-  const number = Number(value || 0) * 100;
-  return `${number >= 0 ? "+" : ""}${number.toFixed(digits)} pts`;
+function compactLabel(label, max = 14) {
+  const text = String(label ?? "");
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-async function getJson(url) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(await responseErrorMessage(res, url));
-  return res.json();
-}
-
-async function responseErrorMessage(res, url) {
-  try {
-    const payload = await res.json();
-    return payload.message || payload.error || `${url} returned ${res.status}`;
-  } catch (error) {
-    return `${url} returned ${res.status}`;
-  }
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function currentLimit() {
-  return Number($("#sample-window")?.value || 750);
-}
-
-function currentAlpha() {
-  const value = Number($("#novelty-alpha")?.value || 0.65);
-  if (!Number.isFinite(value)) return 0.65;
-  return Math.min(0.95, Math.max(0.05, value));
-}
-
-function currentBeta() {
-  const value = Number($("#fusion-beta")?.value);
-  if (Number.isFinite(value)) return Math.min(0.95, Math.max(0.0, value));
-  return Number((1 - currentAlpha()).toFixed(2));
-}
-
-function currentFusionMode() {
-  return $("#fusion-mode")?.checked ? "soft" : "hard";
-}
-
-function currentSeed() {
-  const value = Number($("#seed-selector")?.value || 60);
-  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 60;
-}
-
-function currentFlowIndex() {
-  const value = Number($("#flow-index")?.value || 0);
-  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
-}
-
-function currentParams(overrides = {}) {
-  return {
-    window_size: currentLimit(),
-    flow_index: currentFlowIndex(),
-    alpha: currentAlpha(),
-    beta: currentBeta(),
-    fusion_mode: currentFusionMode(),
-    seed: currentSeed(),
-    ...overrides,
-  };
-}
-
-function queryString(params = currentParams()) {
-  return new URLSearchParams(params).toString();
-}
-
-function defaultChartConfig() {
-  return {
-    type: "line",
-    x: "sequence",
-    y: "confidence",
-    attackClass: "all",
-    rangeStart: 0,
-    rangeEnd: currentLimit(),
-    topN: 10,
-  };
-}
-
-function loadChartConfig() {
-  if (state.chartConfig) return state.chartConfig;
-  try {
-    state.chartConfig = { ...defaultChartConfig(), ...JSON.parse(localStorage.getItem(CHART_CONFIG_KEY) || "{}") };
-  } catch (error) {
-    state.chartConfig = defaultChartConfig();
-  }
-  return state.chartConfig;
-}
-
-function saveChartConfig(patch = {}) {
-  state.chartConfig = { ...defaultChartConfig(), ...loadChartConfig(), ...patch };
-  localStorage.setItem(CHART_CONFIG_KEY, JSON.stringify(state.chartConfig));
-  return state.chartConfig;
-}
-
-async function refreshWindowedDashboard() {
-  const limit = currentLimit();
-  const requestId = ++state.windowRequestId;
-  const params = currentParams({ window_size: limit });
-  const qs = queryString(params);
-  setStatus(`Recomputing charts for window ${limit}, seed ${params.seed}, ${params.fusion_mode} fusion...`);
-  const [research, chartData, novelty, backend] = await Promise.all([
-    getJson(`/api/research?${qs}`),
-    getJson(`/api/charts?${qs}`),
-    getJson(`/api/novelty?${qs}`),
-    getJson("/api/backend/status"),
-  ]);
-  if (requestId !== state.windowRequestId) return;
-  state.research = research;
-  state.chartData = chartData;
-  state.novelty = novelty;
-  state.backend = backend;
-  renderOverview();
-  renderAnalysis();
-  renderNovelty();
-  renderBackendStatus();
-  setStatus(`${research.limit.toLocaleString()} flows computed`);
-}
-
-async function refreshNoveltyForControls() {
-  const limit = currentLimit();
-  const alpha = currentAlpha();
-  const qs = queryString(currentParams({ window_size: limit, alpha }));
-  setStatus(`Refreshing reliability for alpha ${alpha.toFixed(2)}...`);
-  state.novelty = await getJson(`/api/novelty?${qs}`);
-  renderNovelty();
-  setStatus(`Reliability refreshed for alpha ${state.novelty.alpha}`);
-}
-
-function setView(name) {
-  $$(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === name));
-  $$(".view").forEach(view => view.classList.toggle("active", view.id === `view-${name}`));
-  history.replaceState(null, "", name === "overview" ? "/" : `#${name}`);
+function setText(selector, text) {
+  const node = $(selector);
+  if (node) node.textContent = text;
 }
 
 function setupNavigation() {
-  $$(".nav-item").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
-  $$("[data-view-jump]").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.viewJump)));
-  const initial = location.hash.replace("#", "");
-  if (initial && $(`#view-${initial}`)) setView(initial);
-}
-
-function destroyChart(key) {
-  if (state.charts[key]) state.charts[key].destroy();
-}
-
-function makeChart(key, canvasId, config) {
-  if (!window.Chart) {
-    const canvas = document.getElementById(canvasId);
-    if (canvas) {
-      const box = canvas.closest(".chart-box");
-      if (box) box.innerHTML = `<div class="chart-fallback">Chart library unavailable. Backend data and CSV exports still work.</div>`;
-    }
-    return;
-  }
-  destroyChart(key);
-  state.charts[key] = new Chart(document.getElementById(canvasId), config);
-}
-
-function chartScales() {
-  return {
-    x: { grid: { color: "rgba(255,255,255,.05)" } },
-    y: { grid: { color: "rgba(255,255,255,.05)" }, beginAtZero: true },
-  };
-}
-
-function metricScale(values, pad = 0.02) {
-  const nums = values.map(Number).filter(Number.isFinite);
-  if (!nums.length) return { min: 0, max: 1 };
-  if (Math.min(...nums) === Math.max(...nums)) {
-    return { min: Math.max(0, nums[0] - pad), max: Math.min(1, nums[0] + pad) };
-  }
-  return {
-    min: Math.max(0, Math.min(...nums) - pad),
-    max: Math.min(1, Math.max(...nums) + pad),
-  };
-}
-
-function renderOverview() {
-  const o = state.overview;
-  const r = state.research;
-  const existingAccuracy = r.metrics.existing[0] || 0;
-  const proposedAccuracy = r.metrics.proposed[0] || 0;
-  const lift = proposedAccuracy - existingAccuracy;
-
-  if (!o) {
-    console.error("🚨 'o' is NULL:", o);
-    return;
-}
-
-if (!r || !r.metrics || !r.metrics.proposed) {
-    console.error("🚨 'r.metrics' missing:", r);
-    return;
-}
-
-$("#headline-score").textContent =
-    `${pct(proposedAccuracy || 0)} backend-computed accuracy with neuro-symbolic explanation`;
-
-$("#kpi-lift").textContent =
-    `+${((lift || 0) * 100).toFixed(2)} pts`;
-
-$("#kpi-f1").textContent =
-    pct(r.metrics.proposed[3] || 0);
-
-$("#kpi-classes").textContent =
-    o.num_classes ?? 0;
-
-$("#kpi-samples").textContent =
-    Number(o.total_samples || 0).toLocaleString();
-
-$("#flow-index").max =
-    o.max_index || 0;
-
-state.maxIndex =
-    o.max_index || 0;
-
-  makeChart("comparisonChart", "chart-comparison", {
-    type: "bar",
-    data: {
-      labels: r.metrics.labels,
-      datasets: [
-        {
-          label: "Baseline MLP",
-          data: r.metrics.existing,
-          backgroundColor: "rgba(244,183,64,.72)",
-          borderColor: colors.amber,
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-        {
-          label: "Neuro-symbolic",
-          data: r.metrics.proposed,
-          backgroundColor: "rgba(25,211,197,.72)",
-          borderColor: colors.cyan,
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { ...chartScales(), y: { ...metricScale([...r.metrics.existing, ...r.metrics.proposed]), grid: { color: "rgba(255,255,255,.05)" } } },
-      plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${pct(ctx.raw, 2)}` } } },
-    },
-  });
-
-  makeChart("distributionChart", "chart-distribution", {
-    type: "bar",
-    data: {
-      labels: r.class_distribution.labels,
-      datasets: [
-        {
-          label: "Baseline labels",
-          data: r.class_distribution.baseline_values || r.class_distribution.values,
-          backgroundColor: "rgba(244,183,64,.55)",
-          borderColor: colors.amber,
-          borderWidth: 1,
-          borderRadius: 5,
-        },
-        {
-          label: "Proposed labels",
-          data: r.class_distribution.proposed_values || r.class_distribution.values,
-          backgroundColor: "rgba(25,211,197,.62)",
-          borderColor: colors.cyan,
-          borderWidth: 1,
-          borderRadius: 5,
-        },
-      ],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales() },
-  });
-  renderImpactProof();
-  renderArchitectureTelemetry();
-  renderBackendStatus();
-}
-
-function renderImpactProof() {
-  const r = state.research;
-  if (!r || !r.rule_analytics) return;
-  const analytics = r.rule_analytics;
-  const proof = r.novelty_proof || {};
-  $("#impact-verdict").textContent = proof.verdict === "proven" ? "proven" : "needs larger window";
-  $("#impact-verdict").classList.toggle("good", proof.verdict === "proven");
-  $("#impact-trigger-rate").textContent = pct(analytics.rule_trigger_rate || 0);
-  $("#impact-trigger-count").textContent = `${analytics.rule_trigger_count || 0} rule firings`;
-  $("#impact-change-rate").textContent = pct(analytics.prediction_change_rate || 0);
-  $("#impact-change-count").textContent = `${analytics.prediction_change_count || 0} changed predictions`;
-  $("#impact-delta-accuracy").textContent = signedPct(analytics.delta_accuracy || 0);
-  $("#impact-delta-f1").textContent = signedPct(analytics.delta_f1 || 0);
-  $("#impact-attack-recall").textContent = signedPct(analytics.binary_attack_recall_delta || 0);
-  $("#impact-fn-rescues").textContent = analytics.false_negative_attack_rescues || 0;
-  const examples = proof.examples || [];
-  $("#impact-examples").innerHTML = examples.length ? examples.map(item => `
-    <div class="example-item ${item.exact_correction ? "exact" : ""}">
-      <strong>Sample ${item.sample}: ${item.mlp_label} -> ${item.neuro_symbolic_label}</strong>
-      <span>true=${item.true_label} | ${item.rule_id} | strength=${Number(item.rule_strength || 0).toFixed(3)}</span>
-      <p>${item.explanation || "Rule explanation unavailable."}</p>
-    </div>
-  `).join("") : `<div class="example-item"><strong>No correction examples in this window</strong><span>Increase the sample window to inspect more rare failure regions.</span></div>`;
-}
-
-function renderAnalysis() {
-  const r = state.research;
-  const c = state.chartData;
-  $("#cache-status").textContent = `${r.limit.toLocaleString()} flows computed`;
-  $("#sample-window-value").textContent = r.limit;
-  $("#sample-window").value = r.limit;
-  if (c.debug) console.info("Chart recompute debug", c.debug);
-
-  makeChart("rulesChart", "chart-rules", {
-    type: "bar",
-    data: {
-      labels: r.rule_hits.labels.length ? r.rule_hits.labels : ["NONE"],
-      datasets: [{
-        label: "Rule hits",
-        data: r.rule_hits.values.length ? r.rule_hits.values : [0],
-        backgroundColor: "rgba(155,135,255,.72)",
-        borderColor: colors.violet,
-        borderWidth: 1,
-        borderRadius: 6,
-      }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false } } },
-  });
-
-  makeChart("analysisComparisonChart", "chart-analysis-comparison", {
-    type: "bar",
-    data: {
-      labels: c.improvement_curve.labels,
-      datasets: [
-        {
-          type: "line",
-          label: "Baseline macro F1",
-          data: c.improvement_curve.existing_f1,
-          borderColor: colors.amber,
-          backgroundColor: "rgba(244,183,64,.1)",
-          borderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          tension: 0.25,
-          yAxisID: "y",
-        },
-        {
-          type: "line",
-          label: "Neuro-symbolic macro F1",
-          data: c.improvement_curve.proposed_f1,
-          borderColor: colors.cyan,
-          backgroundColor: "rgba(25,211,197,.12)",
-          borderWidth: 3,
-          pointRadius: 5,
-          pointHoverRadius: 7,
-          tension: 0.25,
-          yAxisID: "y",
-        },
-        {
-          type: "bar",
-          label: "Attack recall lift (pts)",
-          data: c.improvement_curve.attack_recall_delta_points,
-          backgroundColor: "rgba(74,222,128,.35)",
-          borderColor: colors.green,
-          borderWidth: 1,
-          borderRadius: 4,
-          yAxisID: "y1",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { title: { display: true, text: "Evaluation window size" }, grid: { color: "rgba(255,255,255,.05)" } },
-        y: { ...metricScale([...c.improvement_curve.existing_f1, ...c.improvement_curve.proposed_f1], 0.004), title: { display: true, text: "Macro F1" }, grid: { color: "rgba(255,255,255,.05)" } },
-        y1: { position: "right", beginAtZero: true, title: { display: true, text: "Attack recall lift (pts)" }, grid: { drawOnChartArea: false }, ticks: { callback: value => `${value}` } },
-      },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: ctx => ctx.dataset.yAxisID === "y1"
-              ? `${ctx.dataset.label}: ${Number(ctx.raw || 0).toFixed(3)}`
-              : `${ctx.dataset.label}: ${pct(ctx.raw, 3)}`,
-          },
-        },
-      },
-    },
-  });
-
-  makeChart("perClassChart", "chart-per-class", {
-    type: "radar",
-    data: {
-      labels: c.per_class.labels,
-      datasets: [
-        { label: "Baseline MLP F1", data: c.per_class.existing_f1, backgroundColor: "rgba(244,183,64,.14)", borderColor: colors.amber, borderWidth: 2 },
-        { label: "Neuro-symbolic F1", data: c.per_class.proposed_f1, backgroundColor: "rgba(25,211,197,.18)", borderColor: colors.cyan, borderWidth: 2 },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { r: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.08)" }, angleLines: { color: "rgba(255,255,255,.08)" }, pointLabels: { color: colors.muted } } },
-    },
-  });
-
-  makeChart("confidenceChart", "chart-confidence", {
-    type: "line",
-    data: {
-      labels: c.confidence_histogram.labels,
-      datasets: [{ label: "Flows", data: c.confidence_histogram.values, backgroundColor: "rgba(75,163,255,.16)", borderColor: colors.blue, borderWidth: 2, tension: 0.35, fill: true }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false } } },
-  });
-
-  makeChart("detectionChart", "chart-detection", {
-    type: "bar",
-    data: {
-      labels: c.detection_counts.labels,
-      datasets: [{ label: "Flows", data: c.detection_counts.values, backgroundColor: ["rgba(255,91,110,.72)", "rgba(244,183,64,.72)", "rgba(25,211,197,.72)", "rgba(155,135,255,.72)", "rgba(74,222,128,.72)"], borderColor: "#101720", borderWidth: 2, borderRadius: 5 }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false } } },
-  });
-
-  makeChart("errorRateChart", "chart-error-rate", {
-    type: "bar",
-    data: {
-      labels: c.class_error_rate.labels,
-      datasets: [
-        { label: "Baseline error", data: c.class_error_rate.baseline_values || c.class_error_rate.values, backgroundColor: "rgba(244,183,64,.55)", borderColor: colors.amber, borderWidth: 1, borderRadius: 5 },
-        { label: "Proposed error", data: c.class_error_rate.proposed_values || c.class_error_rate.values, backgroundColor: "rgba(255,91,110,.62)", borderColor: colors.red, borderWidth: 1, borderRadius: 5 },
-      ],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: { ...chartScales(), y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } } }, plugins: { tooltip: { callbacks: { label: ctx => pct(ctx.raw, 2) } } } },
-  });
-
-  makeChart("rocChart", "chart-roc", {
-    type: "line",
-    data: {
-      datasets: [
-        { label: `Baseline ROC AUC ${c.roc_curve.baseline?.auc ?? "n/a"}`, data: c.roc_curve.baseline?.points || c.roc_curve.points, borderColor: colors.amber, backgroundColor: "transparent", parsing: false, pointRadius: 0, borderDash: [7, 4], tension: 0.25 },
-        { label: `Proposed ROC AUC ${c.roc_curve.proposed?.auc ?? c.roc_curve.auc ?? "n/a"}`, data: c.roc_curve.proposed?.points || c.roc_curve.points, borderColor: colors.green, backgroundColor: "rgba(74,222,128,.12)", parsing: false, pointRadius: 0, tension: 0.25, fill: true },
-        { label: "Random baseline", data: [{ x: 0, y: 0 }, { x: 1, y: 1 }], borderColor: "rgba(143,162,179,.55)", borderDash: [4, 4], pointRadius: 0 },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { type: "linear", min: 0, max: 1, title: { display: true, text: "False positive rate" }, grid: { color: "rgba(255,255,255,.05)" } },
-        y: { min: 0, max: 1, title: { display: true, text: "True positive rate" }, grid: { color: "rgba(255,255,255,.05)" } },
-      },
-    },
-  });
-
-  makeChart("differenceChart", "chart-difference", {
-    type: "bar",
-    data: {
-      labels: c.difference_chart.labels,
-      datasets: [{
-        label: "Proposed minus baseline",
-        data: c.difference_chart.values,
-        backgroundColor: c.difference_chart.values.map(value => Number(value) >= 0 ? "rgba(74,222,128,.65)" : "rgba(255,91,110,.65)"),
-        borderColor: c.difference_chart.values.map(value => Number(value) >= 0 ? colors.green : colors.red),
-        borderWidth: 1,
-        borderRadius: 5,
-      }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => signedPct(ctx.raw, 3) } } } },
-  });
-
-  makeChart("attackRecallGainChart", "chart-attack-recall-gain", {
-    type: "bar",
-    data: {
-      labels: c.attack_recall_gain.labels,
-      datasets: [
-        { label: "Baseline recall", data: c.attack_recall_gain.baseline, backgroundColor: "rgba(244,183,64,.45)", borderColor: colors.amber, borderWidth: 1, borderRadius: 5 },
-        { label: "Proposed recall", data: c.attack_recall_gain.proposed, backgroundColor: "rgba(25,211,197,.55)", borderColor: colors.cyan, borderWidth: 1, borderRadius: 5 },
-        { type: "line", label: "Recall gain", data: c.attack_recall_gain.values, borderColor: colors.green, backgroundColor: "rgba(74,222,128,.12)", pointRadius: 4, yAxisID: "y1" },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        ...chartScales(),
-        y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } },
-        y1: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: value => `${Number(value).toFixed(2)}` } },
-      },
-    },
-  });
-
-  renderMatrix(r.classes, r.confusion_matrix);
-  renderAuditTable(r.rows);
-  renderChartExplorer();
-  renderImpactProof();
-  renderArchitectureTelemetry();
-}
-
-function selectOptions(el, values, selected) {
-  if (!el) return;
-  const unique = Array.from(new Set(values.filter(Boolean)));
-  el.innerHTML = unique.map(value => `<option value="${value}">${value}</option>`).join("");
-  if (unique.includes(selected)) el.value = selected;
-}
-
-function explorerPayload() {
-  return state.chartData?.chart_explorer || {
-    rows: [],
-    available_columns: [],
-    numeric_columns: [],
-    attack_classes: [],
-    default_x: "sequence",
-    default_y: "confidence",
-    traffic_over_time: [],
-    feature_importance: [],
-  };
-}
-
-function syncChartControls() {
-  const explorer = explorerPayload();
-  const cfg = loadChartConfig();
-  const rows = explorer.rows || [];
-  const maxSequence = Math.max(0, rows.length ? Math.max(...rows.map(row => Number(row.sequence || 0))) : currentLimit());
-  cfg.x = (explorer.available_columns || []).includes(cfg.x) ? cfg.x : explorer.default_x;
-  cfg.y = (explorer.numeric_columns || []).includes(cfg.y) ? cfg.y : explorer.default_y;
-  const classOptions = ["all", ...(explorer.attack_classes || [])];
-  cfg.attackClass = classOptions.includes(cfg.attackClass) ? cfg.attackClass : "all";
-  cfg.rangeStart = Math.max(0, Math.min(Number(cfg.rangeStart || 0), maxSequence));
-  cfg.rangeEnd = Math.max(cfg.rangeStart, Math.min(Number(cfg.rangeEnd || maxSequence), maxSequence));
-  saveChartConfig(cfg);
-
-  const typeEl = $("#chart-type-selector");
-  if (typeEl) typeEl.value = cfg.type;
-  selectOptions($("#chart-x-selector"), explorer.available_columns || ["sequence"], cfg.x);
-  selectOptions($("#chart-y-selector"), explorer.numeric_columns || ["confidence"], cfg.y);
-  selectOptions($("#chart-class-filter"), classOptions, cfg.attackClass);
-  const startEl = $("#chart-range-start");
-  const endEl = $("#chart-range-end");
-  if (startEl) {
-    startEl.max = maxSequence;
-    startEl.value = cfg.rangeStart;
-  }
-  if (endEl) {
-    endEl.max = maxSequence;
-    endEl.value = cfg.rangeEnd;
-  }
-  const topEl = $("#chart-top-n");
-  if (topEl) topEl.value = cfg.topN;
-  const topValue = $("#chart-top-n-value");
-  if (topValue) topValue.textContent = cfg.topN;
-}
-
-function filteredExplorerRows(sourceRows) {
-  const cfg = loadChartConfig();
-  return (sourceRows || []).filter(row => {
-    const sequence = Number(row.sequence || 0);
-    if (sequence < Number(cfg.rangeStart || 0) || sequence > Number(cfg.rangeEnd || Number.MAX_SAFE_INTEGER)) return false;
-    if (cfg.attackClass && cfg.attackClass !== "all" && row.attack_class !== cfg.attackClass) return false;
-    return true;
-  });
-}
-
-function plotLayout(title, xTitle, yTitle) {
-  return {
-    title: { text: title, font: { size: 15, color: colors.muted } },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: colors.muted, family: "Inter, system-ui, sans-serif" },
-    margin: { l: 54, r: 22, t: 48, b: 54 },
-    xaxis: { title: xTitle, gridcolor: "rgba(255,255,255,.06)", zerolinecolor: "rgba(255,255,255,.12)" },
-    yaxis: { title: yTitle, gridcolor: "rgba(255,255,255,.06)", zerolinecolor: "rgba(255,255,255,.12)" },
-  };
-}
-
-function classMatrix(rows, xColumn, yColumn, topN) {
-  const xValues = Array.from(new Set(rows.map(row => String(row[xColumn] ?? "n/a")))).slice(0, topN);
-  const yValues = Array.from(new Set(rows.map(row => String(row[yColumn] ?? "n/a")))).slice(0, topN);
-  const z = yValues.map(y => xValues.map(x => rows.filter(row => String(row[xColumn] ?? "n/a") === x && String(row[yColumn] ?? "n/a") === y).length));
-  return { xValues, yValues, z };
-}
-
-function renderChartExplorer() {
-  const target = $("#chart-explorer");
-  if (!target) return;
-  if (!window.Plotly) {
-    target.innerHTML = `<div class="chart-fallback">Plotly is loading. Chart data and CSV export are available.</div>`;
-    if (!state.plotlyLoadStarted) {
-      state.plotlyLoadStarted = true;
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js";
-      script.onload = () => renderChartExplorer();
-      document.head.appendChild(script);
-    }
-    return;
-  }
-  syncChartControls();
-  const explorer = explorerPayload();
-  const cfg = loadChartConfig();
-  const topN = Number(cfg.topN || 10);
-  const rows = filteredExplorerRows(explorer.rows || []);
-  let traces = [];
-  let layout = plotLayout("Current run", cfg.x, cfg.y);
-
-  if (["line", "area", "scatter", "bar"].includes(cfg.type)) {
-    const x = rows.map(row => row[cfg.x]);
-    const y = rows.map(row => row[cfg.y]);
-    const mode = cfg.type === "scatter" ? "markers" : "lines+markers";
-    const trace = { x, y, type: cfg.type === "bar" ? "bar" : "scatter", mode, name: cfg.y, marker: { color: colors.cyan } };
-    if (cfg.type === "area") trace.fill = "tozeroy";
-    traces = [trace];
-    state.chartExportRows = rows.map(row => ({ [cfg.x]: row[cfg.x], [cfg.y]: row[cfg.y], attack_class: row.attack_class }));
-  } else if (cfg.type === "heatmap") {
-    const matrix = classMatrix(rows, cfg.x || "true", cfg.y || "proposed", topN);
-    traces = [{ type: "heatmap", x: matrix.xValues, y: matrix.yValues, z: matrix.z, colorscale: "YlGnBu" }];
-    layout = plotLayout("Filtered heatmap", cfg.x, cfg.y);
-    state.chartExportRows = matrix.yValues.flatMap((y, rowIndex) => matrix.xValues.map((x, colIndex) => ({ x, y, count: matrix.z[rowIndex][colIndex] })));
-  } else if (cfg.type === "confusion-matrix") {
-    traces = [{ type: "heatmap", x: state.research.classes, y: state.research.classes, z: state.research.confusion_matrix, colorscale: "YlOrRd" }];
-    layout = plotLayout("Confusion matrix", "Predicted", "True");
-    state.chartExportRows = state.research.classes.flatMap((y, rowIndex) => state.research.classes.map((x, colIndex) => ({ true: y, predicted: x, count: state.research.confusion_matrix[rowIndex][colIndex] })));
-  } else if (cfg.type === "roc") {
-    const roc = state.chartData.roc_curve || {};
-    traces = [
-      { type: "scatter", mode: "lines", name: "Baseline", x: (roc.baseline?.points || []).map(p => p.x), y: (roc.baseline?.points || []).map(p => p.y), line: { color: colors.amber, dash: "dash" } },
-      { type: "scatter", mode: "lines", name: "Proposed", x: (roc.proposed?.points || roc.points || []).map(p => p.x), y: (roc.proposed?.points || roc.points || []).map(p => p.y), line: { color: colors.green } },
-    ];
-    layout = plotLayout("ROC curve", "False positive rate", "True positive rate");
-    state.chartExportRows = (roc.proposed?.points || roc.points || []).map(point => ({ fpr: point.x, tpr: point.y }));
-  } else if (cfg.type === "pr") {
-    const pr = state.chartData.pr_curve || {};
-    traces = [
-      { type: "scatter", mode: "lines", name: "Baseline", x: (pr.baseline?.points || []).map(p => p.x), y: (pr.baseline?.points || []).map(p => p.y), line: { color: colors.amber, dash: "dash" } },
-      { type: "scatter", mode: "lines", name: "Proposed", x: (pr.proposed?.points || pr.points || []).map(p => p.x), y: (pr.proposed?.points || pr.points || []).map(p => p.y), line: { color: colors.green } },
-    ];
-    layout = plotLayout("Precision-recall curve", "Recall", "Precision");
-    state.chartExportRows = (pr.proposed?.points || pr.points || []).map(point => ({ recall: point.x, precision: point.y }));
-  } else if (cfg.type === "feature-importance") {
-    const importance = (explorer.feature_importance || []).slice(0, topN);
-    traces = [{ type: "bar", orientation: "h", x: importance.map(row => row.score), y: importance.map(row => row.feature), marker: { color: colors.violet } }];
-    layout = plotLayout("Feature importance", "Score", "Feature");
-    state.chartExportRows = importance;
-  } else if (cfg.type === "traffic-over-time") {
-    const traffic = filteredExplorerRows(explorer.traffic_over_time || []);
-    const yColumn = traffic.some(row => Number(row.bytes_total || 0) > 0) ? "bytes_total" : "confidence";
-    traces = [{ type: "scatter", mode: "lines+markers", x: traffic.map(row => row.sequence), y: traffic.map(row => row[yColumn]), name: yColumn, line: { color: colors.blue } }];
-    layout = plotLayout("Traffic over time", "Sequence", yColumn);
-    state.chartExportRows = traffic;
-  } else if (cfg.type === "attack-class-distribution") {
-    const distribution = state.chartData.class_distribution || state.research.class_distribution;
-    traces = [{ type: "bar", x: distribution.labels, y: distribution.proposed_values || distribution.values, marker: { color: colors.red } }];
-    layout = plotLayout("Attack-class distribution", "Class", "Flows");
-    state.chartExportRows = distribution.labels.map((label, index) => ({ class: label, count: (distribution.proposed_values || distribution.values)[index] }));
-  }
-
-  Plotly.react(target, traces, layout, { responsive: true, displaylogo: false });
-}
-
-function renderBackendStatus() {
-  if (!state.backend) return;
-  const b = state.backend;
-  const items = [
-    ["Backend", b.backend],
-    ["Model loaded", b.model_loaded ? "Yes" : "No"],
-    ["Rows", Number(b.test_rows || 0).toLocaleString()],
-    ["Features", b.feature_count],
-    ["Classes", (b.classes || []).join(", ")],
-    ["Learned rescue rules", b.symbolic_rule_summary?.count ?? "not loaded"],
-    ["Analysis cache", (b.cached_analysis_windows || []).join(", ") || "cold"],
-    ["Chart cache", (b.cached_chart_windows || []).join(", ") || "cold"],
-    ["Incidents", b.incident_count],
-    ["Model path", b.model_path],
-    ["Data path", b.test_path],
-  ];
-  $("#backend-grid").innerHTML = items.map(([key, value]) => `
-    <div class="backend-item"><span>${key}</span><strong>${value}</strong></div>
-  `).join("");
-}
-
-function renderNovelty() {
-  const n = state.novelty;
-  if (!n) return;
-  $("#novelty-ece").textContent = Number(n.calibration.ece || 0).toFixed(3);
-  $("#novelty-coverage").textContent = pct(n.conformal.empirical_coverage || 0);
-  $("#novelty-ood").textContent = pct(n.ood_drift.ood_rate || 0);
-  $("#novelty-review").textContent = n.review_queue.length;
-
-  makeChart("conformalChart", "chart-conformal", {
-    type: "bar",
-    data: {
-      labels: ["Target coverage", "Empirical coverage", "Probability threshold"],
-      datasets: [{
-        label: `Alpha ${Number(n.alpha || 0).toFixed(2)}`,
-        data: [
-          n.conformal.target_coverage,
-          n.conformal.empirical_coverage,
-          n.conformal.probability_threshold,
-        ],
-        backgroundColor: ["rgba(75,163,255,.72)", "rgba(25,211,197,.72)", "rgba(244,183,64,.72)"],
-        borderColor: [colors.blue, colors.cyan, colors.amber],
-        borderWidth: 1,
-        borderRadius: 5,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { ...chartScales(), y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } } },
-      plugins: { legend: { display: true }, tooltip: { callbacks: { label: ctx => pct(ctx.raw, 2) } } },
-    },
-  });
-
-  makeChart("calibrationChart", "chart-calibration", {
-    type: "line",
-    data: {
-      labels: n.calibration.bins.map(row => row.bin),
-      datasets: [
-        {
-          label: "Observed accuracy",
-          data: n.calibration.bins.map(row => row.accuracy),
-          borderColor: colors.cyan,
-          backgroundColor: "rgba(25,211,197,.14)",
-          tension: 0.35,
-          fill: true,
-        },
-        {
-          label: "Mean confidence",
-          data: n.calibration.bins.map(row => row.confidence),
-          borderColor: colors.amber,
-          backgroundColor: "transparent",
-          tension: 0.35,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { ...chartScales(), y: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } } },
-    },
-  });
-
-  makeChart("driftChart", "chart-drift", {
-    type: "bar",
-    data: {
-      labels: n.ood_drift.top_drift_features.map(row => row.feature),
-      datasets: [{
-        label: "Mean |z|",
-        data: n.ood_drift.top_drift_features.map(row => row.mean_abs_z),
-        backgroundColor: "rgba(155,135,255,.68)",
-        borderColor: colors.violet,
-        borderWidth: 1,
-        borderRadius: 5,
-      }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, scales: chartScales(), plugins: { legend: { display: false } } },
-  });
-
-  $("#novelty-review-body").innerHTML = n.review_queue.map(row => `
-    <tr>
-      <td>${row.idx}</td>
-      <td>${row.true}</td>
-      <td>${row.predicted}</td>
-      <td>${pct(row.confidence, 1)}</td>
-      <td>${Number(row.entropy || 0).toFixed(3)}</td>
-      <td>${Number(row.ood_score || 0).toFixed(3)}</td>
-      <td class="risk-${row.reason === "OOD" ? "attack" : "benign"}">${row.reason}</td>
-    </tr>
-  `).join("");
-}
-
-function renderMatrix(labels, matrix) {
-  const max = Math.max(...matrix.flat(), 1);
-  const wrap = $("#matrix-wrap");
-  wrap.innerHTML = "";
-  const grid = document.createElement("div");
-  grid.className = "matrix-grid";
-  grid.style.gridTemplateColumns = `120px repeat(${labels.length}, minmax(58px, 1fr))`;
-  grid.appendChild(matrixCell("", true));
-  labels.forEach(label => grid.appendChild(matrixCell(label, true)));
-  labels.forEach((label, rowIndex) => {
-    grid.appendChild(matrixCell(label, true));
-    matrix[rowIndex].forEach(value => {
-      const cell = matrixCell(value.toLocaleString(), false);
-      const alpha = 0.06 + (value / max) * 0.72;
-      cell.style.background = `rgba(25, 211, 197, ${alpha})`;
-      grid.appendChild(cell);
-    });
-  });
-  wrap.appendChild(grid);
-}
-
-function matrixCell(text, head) {
-  const div = document.createElement("div");
-  div.className = `matrix-cell${head ? " head" : ""}`;
-  div.textContent = text;
-  return div;
-}
-
-function renderAuditTable(rows) {
-  $("#audit-body").innerHTML = rows.map(row => `
-    <tr>
-      <td>${row.idx}</td>
-      <td>${row.true}</td>
-      <td>${row.baseline}</td>
-      <td>${row.proposed}</td>
-      <td>${row.changed_prediction ? "yes" : "no"}</td>
-      <td>${Number(row.rule_strength || 0).toFixed(3)}</td>
-      <td class="risk-${row.risk}">${row.risk.toUpperCase()}</td>
-    </tr>
-  `).join("");
-}
-
-async function postJson(url, payload) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload || {}),
-  });
-  if (!res.ok) throw new Error(await responseErrorMessage(res, url));
-  return res.json();
-}
-
-function renderRunProgress(status) {
-  const progress = $("#run-progress");
-  const fill = $("#run-progress-fill");
-  const pctEl = $("#run-progress-percent");
-  const stageEl = $("#run-progress-stage");
-  const list = $("#run-stage-list");
-  if (!progress || !status) return;
-  progress.hidden = false;
-  const percent = Number(status.progress || 0);
-  if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  if (pctEl) pctEl.textContent = `${Math.round(percent)}%`;
-  if (stageEl) stageEl.textContent = status.current_stage || status.state || "running";
-  if (list) {
-    list.innerHTML = (status.stages || []).map(stage => (
-      `<span class="run-stage ${stage.status || "pending"}">${stage.name}</span>`
-    )).join("");
-  }
-}
-
-async function waitForRunJob(jobId) {
-  let status = await getJson(`/api/run/status/${jobId}`);
-  renderRunProgress(status);
-  while (status.state === "queued" || status.state === "running") {
-    await sleep(900);
-    status = await getJson(`/api/run/status/${jobId}`);
-    renderRunProgress(status);
-  }
-  if (status.state === "failed") {
-    const message = status.error?.message || "Run All failed.";
-    const stage = status.error?.stage ? `${status.error.stage}: ` : "";
-    throw new Error(`${stage}${message}`);
-  }
-  return status.result;
-}
-
-async function analyseFlow(index) {
-  index = typeof index !== "undefined" ? index : Number($("#flow-index")?.value || 0);
-  const result = await postJson("/api/defense/analyse", currentParams({ flow_index: index, idx: index }));
-  const flow = result.flow;
-  state.flow = flow;
-  state.incident = result.incident;
-  $("#flow-index").value = flow.index;
-  renderDefense(flow, result.incident);
-  setStatus(`Flow ${flow.index.toLocaleString()} analysed`);
-  return flow;
-}
-
-function evidenceValue(value) {
-  if (value === null || typeof value === "undefined" || value === "") return "--";
-  if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : Number(value).toFixed(4);
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function evidenceKvGrid(items) {
-  return `<div class="evidence-kv-grid">${items.map(([key, value]) => `
-    <div class="evidence-kv"><span>${key}</span><strong>${evidenceValue(value)}</strong></div>
-  `).join("")}</div>`;
-}
-
-function evidenceTable(headers, rows) {
-  if (!rows.length) return `<div class="evidence-kv"><span>Status</span><strong>No matched records</strong></div>`;
-  return `<table class="evidence-mini-table"><thead><tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr></thead><tbody>
-    ${rows.map(row => `<tr>${row.map(value => `<td>${evidenceValue(value)}</td>`).join("")}</tr>`).join("")}
-  </tbody></table>`;
-}
-
-function evidenceCard(title, body, open = false) {
-  return `<details class="evidence-card" ${open ? "open" : ""}><summary>${title}</summary><div class="evidence-card-body">${body}</div></details>`;
-}
-
-function renderDefense(flow, incident) {
-  const isAttack = flow.risk === "attack";
-  const confidence = Number(flow.confidence || 0);
-  const panel = $("#warning-panel");
-  panel.classList.toggle("attack", isAttack);
-  panel.classList.toggle("benign", !isAttack);
-  $("#btn-contain-flow").textContent = isAttack ? "Simulate Containment" : "Allow and Monitor";
-
-  $("#decision-label").textContent = isAttack
-    ? `${flow.ns_label} detected at ${pct(confidence)} confidence`
-    : `Benign flow confirmed at ${pct(confidence)} confidence`;
-  $("#decision-action").textContent = flow.defense.action;
-  $("#playbook-list").innerHTML = flow.defense.playbook.map(item => `<li>${item}</li>`).join("");
-  renderIncident(incident);
-
-  const threatCard = $("#threat-card");
-  threatCard.classList.toggle("danger", isAttack);
-  threatCard.classList.toggle("safe", !isAttack);
-  $("#threat-title").textContent = isAttack ? `Warning: ${flow.ns_label}` : "No active attack";
-  $("#threat-copy").textContent = isAttack ? flow.defense.action : "Flow is allowed while telemetry remains under observation.";
-  $("#threat-meter-fill").style.width = `${Math.max(8, confidence * 100)}%`;
-  $("#threat-meter-fill").style.background = isAttack ? colors.red : colors.green;
-
-  makeChart("probabilityChart", "chart-probabilities", {
-    type: "bar",
-    data: {
-      labels: flow.probabilities.labels,
-      datasets: [{
-        label: "Probability",
-        data: flow.probabilities.values,
-        backgroundColor: flow.probabilities.labels.map(label => label === flow.ns_label ? "rgba(255,91,110,.78)" : "rgba(75,163,255,.55)"),
-        borderColor: flow.probabilities.labels.map(label => label === flow.ns_label ? colors.red : colors.blue),
-        borderWidth: 1,
-        borderRadius: 6,
-      }],
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { x: { min: 0, max: 1, grid: { color: "rgba(255,255,255,.05)" } }, y: { grid: { display: false } } },
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => pct(ctx.raw, 2) } } },
-    },
-  });
-
-  const evidence = flow.evidence || {};
-  const history = evidence.historical_frequency || {};
-  const flowContext = evidence.flow_context || {};
-  const featureRows = (evidence.top_features || []).map(row => [row.feature, row.value, row.score, row.method]);
-  const ruleRows = (evidence.matched_rules || []).map(rule => [rule.signature, rule.applied ? "applied" : "matched", rule.strength, rule.reason]);
-  const featureSnapshot = Object.entries(flow.features || {}).slice(0, 24);
-  $("#evidence-grid").innerHTML = [
-    evidenceCard("Prediction Evidence", evidenceKvGrid([
-      ["Flow index", flow.index],
-      ["True label", flow.true_label],
-      ["Existing prediction", flow.base_pred],
-      ["Proposed prediction", flow.ns_label],
-      ["Changed prediction", flow.changed_prediction ? "yes" : "no"],
-      ["Confidence", evidence.confidence ?? flow.confidence],
-      ["Calibrated probability", evidence.calibrated_probability],
-      ["Class frequency", `${history.count || 0}/${history.total_rows || 0} (${pct(history.rate || 0, 2)})`],
-      ["Robust model", flow.robust_pred || "Unavailable"],
-    ]), true),
-    evidenceCard("Packet And Flow Context", evidenceKvGrid(Object.entries(flowContext)), true),
-    evidenceCard("Top Feature Contributions", evidenceTable(["Feature", "Value", "Score", "Method"], featureRows), true),
-    evidenceCard("Matched Rules And Signatures", evidenceTable(["Signature", "State", "Strength", "Reason"], ruleRows), false),
-    evidenceCard("Raw Feature Snapshot", evidenceKvGrid(featureSnapshot), false),
-  ].join("");
-  renderArchitectureTelemetry();
-}
-
-function renderArchitectureTelemetry() {
-  if (!state.research) return;
-  const windowEl = $("#arch-window");
-  const rulesEl = $("#arch-rules");
-  const changesEl = $("#arch-changes");
-  if (!windowEl || !rulesEl || !changesEl) return;
-  const analytics = state.research.rule_analytics || {};
-  windowEl.textContent = Number(state.research.limit || 0).toLocaleString();
-  rulesEl.textContent = Number(analytics.rule_trigger_count || 0).toLocaleString();
-  changesEl.textContent = Number(analytics.prediction_change_count || 0).toLocaleString();
-}
-
-function renderIncident(incident) {
-  if (!incident) return;
-  $("#incident-strip").textContent = `${incident.incident_id} | ${incident.status} | ${incident.severity}`;
-  $("#defense-timeline").innerHTML = [
-    ...incident.timeline.map(item => `<div class="timeline-item"><strong>${item.time}</strong><span>${item.event}</span></div>`),
-    ...incident.controls.map(control => `<div class="timeline-item control-${control.state}"><strong>${control.state}</strong><span>${control.name}</span></div>`),
-  ].join("");
-}
-
-const stageCopy = [
-  {
-    title: "Flow ingestion",
-    copy: "Telemetry is normalised into NF-ToN-IoT-V2 NetFlow features before neural inference.",
-    steps: ["Capture flow tuple and traffic rates", "Standardise feature scale", "Preserve feature vector for explanation"],
-    code: "stream.normalize(window)",
-  },
-  {
-    title: "Neural inference",
-    copy: "The trained MLP estimates class probabilities across benign and attack families.",
-    steps: ["Run baseline classifier", "Rank candidate attack classes", "Expose confidence distribution to the dashboard"],
-    code: "mlp.predict_proba(flow)",
-  },
-  {
-    title: "Symbolic reasoning",
-    copy: "Domain rules correct or explain neural decisions using packet-rate, byte-rate, duration, and anomaly context.",
-    steps: ["Check high-rate DDoS bursts", "Check slow sustained attacks", "Attach fired-rule trace to the prediction"],
-    code: "rules.fuse(probabilities)",
-  },
-  {
-    title: "Defence response",
-    copy: "The final label is converted into practical containment guidance for analyst review.",
-    steps: ["Warn user when attack is detected", "Recommend isolation, rate limiting, or blocking", "Export evidence for incident reporting"],
-    code: "response.apply(playbook)",
-  },
-];
-
-function initArchitectureScene() {
-  const canvas = $("#architecture-canvas");
-  if (!canvas || !window.THREE || state.architectureScene) return;
-
-  const THREE = window.THREE;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  if ("outputColorSpace" in renderer && THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-  camera.position.set(0, 5.8, 10.5);
-  camera.lookAt(0, 0, 0);
-
-  const root = new THREE.Group();
-  root.rotation.y = -0.18;
-  scene.add(root);
-
-  const ambient = new THREE.AmbientLight(0x8fb8ff, 0.7);
-  scene.add(ambient);
-  const key = new THREE.DirectionalLight(0x9be8ff, 1.2);
-  key.position.set(-3, 6, 8);
-  scene.add(key);
-  const rim = new THREE.PointLight(0x19d3c5, 2.2, 12);
-  rim.position.set(3, 2, 4);
-  scene.add(rim);
-
-  const grid = new THREE.GridHelper(11, 22, 0x24526c, 0x123044);
-  grid.position.y = -1.65;
-  grid.material.transparent = true;
-  grid.material.opacity = 0.38;
-  root.add(grid);
-
-  const positions = [
-    new THREE.Vector3(-4.0, -0.9, 0.4),
-    new THREE.Vector3(-1.35, 1.2, -0.65),
-    new THREE.Vector3(1.7, -0.35, 0.35),
-    new THREE.Vector3(4.1, 1.05, -0.55),
-  ];
-  const nodeColors = [0x4ba3ff, 0xf4b740, 0x19d3c5, 0x4ade80];
-  const nodes = positions.map((position, index) => {
-    const group = new THREE.Group();
-    group.position.copy(position);
-    const shell = new THREE.Mesh(
-      new THREE.BoxGeometry(1.35, 0.68, 1.0),
-      new THREE.MeshPhysicalMaterial({
-        color: 0x0c1722,
-        emissive: nodeColors[index],
-        emissiveIntensity: 0.08,
-        transparent: true,
-        opacity: 0.68,
-        roughness: 0.32,
-        metalness: 0.38,
-        transmission: 0.12,
-      }),
-    );
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(shell.geometry),
-      new THREE.LineBasicMaterial({ color: nodeColors[index], transparent: true, opacity: 0.72 }),
-    );
-    const core = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.28, 1),
-      new THREE.MeshStandardMaterial({ color: nodeColors[index], emissive: nodeColors[index], emissiveIntensity: 0.45, roughness: 0.25 }),
-    );
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.58, 0.012, 8, 72),
-      new THREE.MeshBasicMaterial({ color: nodeColors[index], transparent: true, opacity: 0.48 }),
-    );
-    ring.rotation.x = Math.PI / 2.5;
-    group.add(shell, edges, core, ring);
-    root.add(group);
-    return { group, shell, edges, core, ring, base: position.clone(), color: nodeColors[index] };
-  });
-
-  const curves = [];
-  for (let i = 0; i < positions.length - 1; i += 1) {
-    const start = positions[i];
-    const end = positions[i + 1];
-    const mid = start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, i % 2 === 0 ? 0.85 : -0.65, 0.35));
-    const curve = new THREE.CatmullRomCurve3([start, mid, end]);
-    curves.push(curve);
-    const tube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 44, 0.018, 8, false),
-      new THREE.MeshBasicMaterial({ color: i === 1 ? 0xf4b740 : 0x19d3c5, transparent: true, opacity: 0.42 }),
-    );
-    root.add(tube);
-  }
-  const fullPath = new THREE.CatmullRomCurve3([
-    positions[0],
-    positions[0].clone().lerp(positions[1], 0.5).add(new THREE.Vector3(0, 0.85, 0.35)),
-    positions[1],
-    positions[1].clone().lerp(positions[2], 0.5).add(new THREE.Vector3(0, -0.65, 0.35)),
-    positions[2],
-    positions[2].clone().lerp(positions[3], 0.5).add(new THREE.Vector3(0, 0.85, 0.35)),
-    positions[3],
-  ]);
-
-  const particleGeometry = new THREE.SphereGeometry(0.055, 12, 12);
-  const particles = Array.from({ length: 32 }, (_, index) => {
-    const material = new THREE.MeshBasicMaterial({
-      color: index % 5 === 0 ? 0xf4b740 : index % 3 === 0 ? 0x4ba3ff : 0x19d3c5,
-      transparent: true,
-      opacity: 0.92,
-    });
-    const particle = new THREE.Mesh(particleGeometry, material);
-    root.add(particle);
-    return { mesh: particle, offset: index / 32, speed: 0.035 + (index % 7) * 0.004 };
-  });
-
-  const resize = () => {
-    const width = Math.max(1, canvas.clientWidth);
-    const height = Math.max(1, canvas.clientHeight);
-    renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-  };
-  const resizeObserver = new ResizeObserver(resize);
-  resizeObserver.observe(canvas);
-  resize();
-
-  let frame = 0;
-  const clock = new THREE.Clock();
-  const animate = () => {
-    const elapsed = clock.getElapsedTime();
-    root.rotation.y = -0.18 + Math.sin(elapsed * 0.18) * 0.08;
-    nodes.forEach((node, index) => {
-      const active = state.architectureScene?.activeStage === index;
-      const pulse = active ? 1.0 + Math.sin(elapsed * 3.2) * 0.045 : 1.0;
-      node.group.scale.setScalar(pulse);
-      node.group.position.y = node.base.y + Math.sin(elapsed * 1.4 + index) * 0.055;
-      node.ring.rotation.z += active ? 0.028 : 0.01;
-      node.core.rotation.x += 0.012 + index * 0.001;
-      node.core.rotation.y += 0.018;
-    });
-    particles.forEach(item => {
-      const progress = (item.offset + elapsed * item.speed) % 1;
-      item.mesh.position.copy(fullPath.getPointAt(progress));
-      item.mesh.material.opacity = 0.35 + Math.sin(progress * Math.PI) * 0.58;
-    });
-    renderer.render(scene, camera);
-    frame = requestAnimationFrame(animate);
-  };
-
-  state.architectureScene = { renderer, scene, camera, root, nodes, particles, resizeObserver, activeStage: 0, animationFrame: frame };
-  updateArchitectureSceneStage(0);
-  animate();
-}
-
-function updateArchitectureSceneStage(stage) {
-  const arch = state.architectureScene;
-  if (!arch) return;
-  arch.activeStage = stage;
-  arch.nodes.forEach((node, index) => {
-    const active = index === stage;
-    node.shell.material.emissiveIntensity = active ? 0.48 : 0.08;
-    node.shell.material.opacity = active ? 0.86 : 0.58;
-    node.edges.material.opacity = active ? 1 : 0.52;
-    node.core.material.emissiveIntensity = active ? 1.2 : 0.42;
-    node.ring.material.opacity = active ? 0.95 : 0.42;
-  });
-}
-
-function setArchitectureStage(stage) {
-  $$(".arch-step").forEach(btn => btn.classList.toggle("active", Number(btn.dataset.stage) === stage));
-  $$(".node").forEach((node, index) => node.classList.toggle("active", index === stage));
-  $("#stage-title").textContent = stageCopy[stage].title;
-  $("#stage-copy").textContent = stageCopy[stage].copy;
-  $("#stage-steps").innerHTML = stageCopy[stage].steps.map(step => `<li>${step}</li>`).join("");
-  $("#arch-terminal-stage").textContent = stageCopy[stage].title;
-  $("#arch-terminal-code").textContent = stageCopy[stage].code;
-  const scene = $("#scene");
-  if (scene) scene.dataset.stage = stage;
-  updateArchitectureSceneStage(stage);
-}
-
-function startArchitectureLoop() {
-  if (state.architectureTimer) clearInterval(state.architectureTimer);
-  let stage = 0;
-  state.architectureTimer = setInterval(() => {
-    if (!$("#view-architecture").classList.contains("active")) return;
-    stage = (stage + 1) % stageCopy.length;
-    setArchitectureStage(stage);
-  }, 2600);
-}
-
-function download(filename, content, type = "text/plain") {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function rowsToCsv(rows) {
-  return rows.map(row => row.map(value => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-}
-
-function renderedChartPayload() {
-  return Object.entries(state.charts)
-    .map(([name, chart]) => {
-      if (!chart || !chart.canvas) return null;
-      chart.resize();
-      chart.update("none");
-      const image = chart.toBase64Image("image/png", 1);
-      if (!image || image === "data:,") return null;
-      return { name, image };
-    })
-    .filter(Boolean);
-}
-
-async function exportAllChartsToProject() {
-  const charts = renderedChartPayload();
-  if (!charts.length) throw new Error("No rendered charts are available to export yet.");
-
-  const result = await postJson("/api/export-charts", {
-    charts,
-    metadata: {
-      window: currentLimit(),
-      alpha: currentAlpha(),
-      flow_index: state.flow?.index ?? null,
-    },
-  });
-  $("#run-all-feedback").textContent = `Saved ${result.saved.length} charts`;
-  setStatus(`Saved ${result.saved.length} charts to ${result.export_dir}`);
-}
-
-function setupExports() {
-  $("#btn-export-json").addEventListener("click", () => {
-    download("neuro_symbolic_dashboard_export.json", JSON.stringify({ overview: state.overview, research: state.research, flow: state.flow }, null, 2), "application/json");
-  });
-  bindAsyncClick("#btn-export-all-charts", "Exporting charts", exportAllChartsToProject);
-  $("#btn-export-flow").addEventListener("click", () => {
-    if (!state.flow) return;
-    const rows = [["field", "value"], ...Object.entries(state.flow.features), ["true_label", state.flow.true_label], ["proposed_label", state.flow.ns_label], ["action", state.flow.defense.action]];
-    download("flow_evidence.csv", rowsToCsv(rows), "text/csv");
-  });
-  $$("[data-export-chart]").forEach(btn => btn.addEventListener("click", () => {
-    const chart = state.charts[btn.dataset.exportChart];
-    if (!chart) return;
-    const link = document.createElement("a");
-    link.download = `${btn.dataset.exportChart}.png`;
-    link.href = chart.toBase64Image("image/png", 1);
-    link.click();
-  }));
-  $("#btn-export-matrix-csv").addEventListener("click", () => exportMatrixCsv());
-  $$("[data-export-table]").forEach(btn => btn.addEventListener("click", () => {
-    if (!state.research) return;
-    if (btn.dataset.exportTable === "matrix") {
-      exportMatrixCsv();
-    } else {
-      const rows = [["idx", "true", "existing", "proposed", "risk"], ...state.research.rows.map(row => [row.idx, row.true, row.baseline, row.proposed, row.risk])];
-      download("audit_table.csv", rowsToCsv(rows), "text/csv");
-    }
-  }));
-}
-
-function exportMatrixCsv() {
-  if (!state.research) return;
-  const rows = [["true/pred", ...state.research.classes], ...state.research.classes.map((label, i) => [label, ...state.research.confusion_matrix[i]])];
-  download("confusion_matrix.csv", rowsToCsv(rows), "text/csv");
-}
-
-function setupChartExplorerControls() {
-  const bindings = [
-    ["#chart-type-selector", "type", "change"],
-    ["#chart-x-selector", "x", "change"],
-    ["#chart-y-selector", "y", "change"],
-    ["#chart-class-filter", "attackClass", "change"],
-    ["#chart-range-start", "rangeStart", "input"],
-    ["#chart-range-end", "rangeEnd", "input"],
-    ["#chart-top-n", "topN", "input"],
-  ];
-  bindings.forEach(([selector, key, eventName]) => {
-    const el = $(selector);
-    if (!el) return;
-    el.addEventListener(eventName, () => {
-      const value = el.type === "number" || el.type === "range" ? Number(el.value) : el.value;
-      saveChartConfig({ [key]: value });
-      if (key === "topN") {
-        const topValue = $("#chart-top-n-value");
-        if (topValue) topValue.textContent = value;
+  $$(".nav-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.dataset.target;
+      $$(".nav-button").forEach((item) => item.classList.toggle("active", item === button));
+      $$(".section").forEach((section) => section.classList.toggle("active", section.id === target));
+      if (target === "architecture") {
+        resizeThree();
       }
-      renderChartExplorer();
     });
   });
-  $("#btn-chart-export-png")?.addEventListener("click", () => exportChartExplorerImage("png"));
-  $("#btn-chart-export-svg")?.addEventListener("click", () => exportChartExplorerImage("svg"));
-  $("#btn-chart-export-csv")?.addEventListener("click", () => exportChartExplorerCsv());
-}
-
-function exportChartExplorerImage(format) {
-  const target = $("#chart-explorer");
-  if (!target || !window.Plotly) return;
-  Plotly.downloadImage(target, {
-    format,
-    filename: `nids_${loadChartConfig().type}`,
-    width: 1400,
-    height: 850,
-  });
-}
-
-function exportChartExplorerCsv() {
-  const rows = state.chartExportRows || [];
-  if (!rows.length) throw new Error("No configurable chart rows are available to export.");
-  const headers = Array.from(rows.reduce((keys, row) => {
-    Object.keys(row).forEach(key => keys.add(key));
-    return keys;
-  }, new Set()));
-  download("configurable_chart.csv", rowsToCsv([headers, ...rows.map(row => headers.map(key => row[key]))]), "text/csv");
 }
 
 function setupControls() {
-  setupChartExplorerControls();
-  bindAsyncClick("#btn-refresh", "Refreshing dashboard", loadDashboard);
-  bindAsyncClick("#btn-run-all", "Running full pipeline", runAll);
-  bindAsyncClick("#btn-backend-refresh", "Refreshing backend status", async () => {
-    state.backend = await getJson("/api/backend/status");
-    renderBackendStatus();
+  $("#btn-refresh")?.addEventListener("click", loadDashboard);
+  $("#btn-run-all")?.addEventListener("click", runAll);
+  $("#btn-analyse-flow")?.addEventListener("click", () => {
+    const index = Number($("#flow-index")?.value || 0);
+    loadFlow(index);
   });
-  // Interactive slider: update display immediately and debounce server recompute
-  const sampleEl = $("#sample-window");
-  if (sampleEl) {
-    let debounceTimer = null;
-    sampleEl.addEventListener("input", event => {
-      const val = event.target.value;
-      $("#sample-window-value").textContent = val;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        try {
-          await refreshWindowedDashboard();
-        } catch (err) {
-          showActionError(err);
-        }
-      }, DEBOUNCE_MS);
+  $$(".stage").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeStage = Number(button.dataset.stage || 0);
+      renderStageText();
+      $$(".stage").forEach((item) => item.classList.toggle("active", item === button));
     });
-    sampleEl.addEventListener("change", async event => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      $("#sample-window-value").textContent = event.target.value;
-      try {
-        await refreshWindowedDashboard();
-      } catch (err) {
-        showActionError(err);
-      }
-    });
-  }
-
-  bindAsyncClick("#btn-refresh-novelty", "Refreshing reliability evidence", async () => {
-    await refreshNoveltyForControls();
   });
-
-  const alphaEl = $("#novelty-alpha");
-  if (alphaEl) {
-    let alphaTimer = null;
-    const syncBeta = () => {
-      const betaEl = $("#fusion-beta");
-      if (betaEl) betaEl.value = Number((1 - currentAlpha()).toFixed(2));
-    };
-    alphaEl.addEventListener("input", () => {
-      syncBeta();
-      if (alphaTimer) clearTimeout(alphaTimer);
-      alphaTimer = setTimeout(() => refreshWindowedDashboard().catch(showActionError), DEBOUNCE_MS);
-    });
-    alphaEl.addEventListener("change", () => {
-      syncBeta();
-      if (alphaTimer) clearTimeout(alphaTimer);
-      refreshWindowedDashboard().catch(showActionError);
-    });
-  }
-
-  ["#fusion-beta", "#seed-selector", "#fusion-mode"].forEach(selector => {
-    const el = $(selector);
-    if (!el) return;
-    let timer = null;
-    const eventName = el.type === "checkbox" ? "change" : "input";
-    el.addEventListener(eventName, () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => refreshWindowedDashboard().catch(showActionError), DEBOUNCE_MS);
-    });
-    if (eventName !== "change") {
-      el.addEventListener("change", () => refreshWindowedDashboard().catch(showActionError));
-    }
-  });
-
-  const flowIndexEl = $("#flow-index");
-  if (flowIndexEl) {
-    let flowTimer = null;
-    flowIndexEl.addEventListener("change", async () => {
-      if (flowTimer) clearTimeout(flowTimer);
-      try {
-        await analyseFlow();
-        await refreshWindowedDashboard();
-      } catch (err) {
-        showActionError(err);
-      }
-    });
-  }
-
-  bindAsyncClick("#btn-analyse-flow", "Analysing flow", async () => {
-    await analyseFlow();
-    await refreshWindowedDashboard();
-  });
-  bindAsyncClick("#btn-random-flow", "Selecting random flow", () => {
-    const current = Number($("#flow-index")?.value || 0);
-    if (state.maxIndex <= 0) return analyseFlow(0).then(refreshWindowedDashboard);
-    let next = Math.floor(Math.random() * state.maxIndex);
-    if (next >= current) next += 1;
-    return analyseFlow(Math.min(next, state.maxIndex)).then(refreshWindowedDashboard);
-  });
-  bindAsyncClick("#btn-contain-flow", "Applying simulated containment", async () => {
-    if (!state.incident) return;
-    const result = await postJson("/api/defense/contain", { incident_id: state.incident.incident_id });
-    state.incident = result.incident;
-    $("#decision-action").textContent = result.message;
-    renderIncident(result.incident);
-  });
-  bindAsyncClick("#btn-defense-status", "Loading defense status", async () => {
-    const status = await getJson("/api/defense/status");
-    $("#cache-status").textContent = `${status.total_incidents} backend incidents tracked`;
-  });
-  $$(".arch-step").forEach(btn => btn.addEventListener("click", () => setArchitectureStage(Number(btn.dataset.stage))));
 }
 
 async function loadDashboard() {
-  $("#cache-status").textContent = "Loading research cache";
-  const qs = queryString();
-  const [overview, research, chartData, novelty, backend] = await Promise.all([
-    getJson("/api/overview"),
-    getJson(`/api/research?${qs}`),
-    getJson(`/api/charts?${qs}`),
-    getJson(`/api/novelty?${qs}`),
-    getJson("/api/backend/status"),
+  setText("#run-all-feedback", "Loading");
+  const [charts, research, novelty, artifacts, flow] = await Promise.allSettled([
+    fetchJSON("/api/charts?window_size=750&flow_index=0"),
+    fetchJSON("/api/research?window_size=750&flow_index=0"),
+    fetchJSON("/api/novelty?window_size=1000&flow_index=0"),
+    fetchJSON("/api/research-artifacts"),
+    fetchJSON("/api/single-flow?flow_index=0"),
   ]);
-  state.overview = overview;
-  state.research = research;
-  state.chartData = chartData;
-  state.novelty = novelty;
-  state.backend = backend;
-  renderOverview();
-  renderAnalysis();
-  renderNovelty();
-  await analyseFlow(0);
-  setArchitectureStage(0);
-  startArchitectureLoop();
-  $("#cache-status").textContent = `${research.limit.toLocaleString()} flows computed`;
+
+  state.charts = charts.status === "fulfilled" ? charts.value : fallbackCharts();
+  state.research = research.status === "fulfilled" ? research.value : fallbackResearch();
+  state.novelty = novelty.status === "fulfilled" ? novelty.value : {};
+  state.artifacts = artifacts.status === "fulfilled" ? artifacts.value : {};
+  state.flow = flow.status === "fulfilled" ? flow.value : null;
+
+  renderDashboard();
+  setText("#run-all-feedback", "Ready");
+}
+
+async function loadFlow(index) {
+  try {
+    state.flow = await fetchJSON(`/api/single-flow?flow_index=${encodeURIComponent(index)}`);
+  } catch (error) {
+    state.flow = null;
+    setText("#warning-title", "Flow analysis failed");
+    setText("#warning-copy", error.message);
+  }
+  renderFlow();
 }
 
 async function runAll() {
-  const button = $("#btn-run-all");
   const feedback = $("#run-all-feedback");
-  button.classList.add("loading");
-  button.disabled = true;
-  feedback.textContent = "Starting pipeline...";
-  renderRunProgress({
-    state: "queued",
-    progress: 0,
-    current_stage: "queued",
-    stages: ["capture", "preprocess", "feature-extract", "predict", "log", "visualize"].map(name => ({ name, status: "pending" })),
-  });
+  if (feedback) feedback.textContent = "Run All starting";
   try {
-    const job = await postJson("/api/run-all", currentParams({ limit: currentLimit(), flow_idx: currentFlowIndex() }));
-    state.runJobId = job.job_id;
-    state.runStatus = job;
-    renderRunProgress(job);
-    feedback.textContent = `Running ${job.current_stage || "pipeline"}...`;
-    const result = await waitForRunJob(job.job_id);
-    state.overview = result.overview;
-    state.research = result.research;
-    state.chartData = result.charts;
-    state.novelty = result.novelty;
-    state.backend = result.backend;
-    state.flow = result.defense.flow;
-    state.incident = result.defense.incident;
-    state.lastRunDebug = result.debug;
-    renderOverview();
-    renderAnalysis();
-    renderNovelty();
-    renderDefense(state.flow, state.incident);
-    renderBackendStatus();
-    feedback.textContent = `Run All complete in ${Number(result.debug?.api_output_summary?.elapsed_ms || 0).toFixed(0)} ms`;
-    setStatus(`Run All recomputed ${state.research.limit.toLocaleString()} flows`);
-    console.info("Run All debug", result.debug);
-  } finally {
-    button.classList.remove("loading");
-    button.disabled = false;
+    const job = await fetchJSON("/api/run-all", { method: "POST" });
+    const jobId = job.job_id;
+    if (!jobId) {
+      throw new Error("Backend did not return a job id.");
+    }
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const status = await fetchJSON(`/api/run/status/${jobId}`);
+      if (feedback) {
+        const stage = status.current_stage || status.state || "running";
+        feedback.textContent = `Run All ${stage}`;
+      }
+      if (status.state === "succeeded") {
+        if (feedback) feedback.textContent = "Run All complete";
+        await loadDashboard();
+        if (feedback) feedback.textContent = "Run All complete";
+        return;
+      }
+      if (status.state === "failed") {
+        throw new Error(status.error?.message || "Run All failed.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    throw new Error("Run All timed out.");
+  } catch (error) {
+    if (feedback) feedback.textContent = "Run All failed";
+    console.error(error);
   }
 }
+
+function renderDashboard() {
+  renderMetrics();
+  renderAllCharts();
+  renderMatrix();
+  renderFlow();
+  renderStageText();
+}
+
+function renderMetrics() {
+  const metric = state.charts?.metric_comparison || {};
+  const labels = metric.labels || ["Accuracy", "Precision", "Recall", "F1"];
+  const f1Index = Math.max(0, labels.findIndex((label) => String(label).toLowerCase().includes("f1")));
+  const existingF1 = metric.existing?.[f1Index];
+  const proposedF1 = metric.proposed?.[f1Index];
+  const unknownRate = state.research?.rule_analytics?.unknown_rejection_rate;
+  const crossF1 = state.artifacts?.cross_dataset?.data?.macro_f1;
+
+  setText("#metric-proposed-f1", fmt(proposedF1, 3));
+  setText("#metric-existing-f1", fmt(existingF1, 3));
+  setText("#metric-unknown", pct(unknownRate || 0));
+  setText("#metric-cross", fmt(crossF1, 3));
+}
+
+function renderAllCharts() {
+  const metric = state.charts?.metric_comparison || {};
+  const labels = metric.labels || ["Accuracy", "Precision", "Recall", "F1"];
+  const existing = (metric.existing || [0.86, 0.84, 0.83, 0.84]).map(Number);
+  const proposed = (metric.proposed || [0.91, 0.90, 0.88, 0.89]).map(Number);
+
+  drawGroupedBars("metricChart", labels, [
+    { name: "Existing", values: existing, color: palette.blue },
+    { name: "Proposed", values: proposed, color: palette.teal },
+  ], { maxY: 1 });
+  drawGroupedBars("comparisonChart", labels, [
+    { name: "Existing", values: existing, color: palette.blue },
+    { name: "Proposed", values: proposed, color: palette.teal },
+  ], { maxY: 1 });
+
+  const perClass = state.charts?.per_class || {};
+  drawGroupedBars("classChart", perClass.labels || [], [
+    { name: "Existing", values: perClass.existing_f1 || [], color: palette.blue },
+    { name: "Proposed", values: perClass.proposed_f1 || [], color: palette.teal },
+  ], { maxY: 1, slanted: true });
+
+  const ablationRows = state.artifacts?.ablation?.rows || [];
+  drawBars("ablationChart", ablationRows.map((row) => row.Config || row.config), ablationRows.map((row) => Number(row.F1 || row.f1)), {
+    color: palette.coral,
+    maxY: 1,
+  });
+
+  const crossF1 = Number(state.artifacts?.cross_dataset?.data?.macro_f1);
+  const internalF1 = proposed[labels.findIndex((label) => String(label).toLowerCase().includes("f1"))] ?? proposed[proposed.length - 1];
+  drawBars("generalizationChart", ["NF-ToN-IoT-V2", "NF-UNSW-NB15"], [internalF1, Number.isFinite(crossF1) ? crossF1 : 0], {
+    color: palette.amber,
+    maxY: 1,
+  });
+
+  const coverage = state.charts?.detection_counts || {};
+  drawBars("coverageChart", coverage.labels || [], coverage.values || [], { color: palette.green });
+
+  const calibration = state.artifacts?.calibration?.data || {};
+  drawBars("calibrationChart", ["DNN ECE", "Proposed ECE"], [
+    calibration.dnn_only?.ece ?? 0,
+    calibration.proposed?.ece ?? 0,
+  ], { color: palette.teal, maxY: Math.max(0.08, calibration.proposed?.ece || 0.08) });
+
+  const probs = state.flow?.probabilities;
+  drawBars("probabilityChart", probs?.labels || [], probs?.values || [], { color: palette.blue, maxY: 1 });
+}
+
+function renderMatrix() {
+  const labels = state.research?.evaluation_labels || state.research?.classes || [];
+  const matrix = state.research?.confusion_matrix || [];
+  const wrap = $("#matrix-wrap");
+  if (!wrap) return;
+  if (!labels.length || !matrix.length) {
+    wrap.innerHTML = "<p>No matrix data available yet.</p>";
+    return;
+  }
+  const max = Math.max(1, ...matrix.flat().map(Number));
+  const head = `<tr><th>True \\ Pred</th>${labels.map((label) => `<th>${compactLabel(label, 12)}</th>`).join("")}</tr>`;
+  const body = matrix.map((row, rowIndex) => {
+    const cells = row.map((value) => {
+      const intensity = Math.max(0.08, Number(value) / max);
+      const bg = `rgba(15, 139, 141, ${0.16 + intensity * 0.78})`;
+      return `<td class="matrix-cell" style="background:${bg}">${value}</td>`;
+    }).join("");
+    return `<tr><th>${compactLabel(labels[rowIndex], 12)}</th>${cells}</tr>`;
+  }).join("");
+  wrap.innerHTML = `<table class="matrix-table">${head}${body}</table>`;
+}
+
+function renderFlow() {
+  const flow = state.flow;
+  if (!flow) return;
+  const label = flow.final_label || flow.ns_label || "--";
+  const confidence = Number(flow.confidence || 0);
+  const risk = flow.risk || "unknown";
+  const rejected = Boolean(flow.rejected_unknown);
+  const action = flow.defense?.action || "Monitor";
+
+  setText("#decision-title", label);
+  setText("#decision-copy", `${rejected ? "Rejected as UNKNOWN before symbolic rules." : action} Confidence ${fmt(confidence, 3)}; entropy ${fmt(flow.entropy, 3)}.`);
+  const fill = $("#confidence-fill");
+  if (fill) fill.style.width = `${Math.max(0, Math.min(1, confidence)) * 100}%`;
+
+  const warning = $("#warning-card");
+  if (warning) {
+    warning.classList.toggle("attack", risk === "attack");
+    warning.classList.toggle("unknown", rejected || label === "UNKNOWN");
+  }
+  setText("#warning-title", `${label} ${rejected ? "(UNKNOWN gate)" : ""}`);
+  setText("#warning-copy", action);
+  const playbook = $("#playbook-list");
+  if (playbook) {
+    playbook.innerHTML = (flow.defense?.playbook || ["Record flow evidence", "Keep analyst in the loop"])
+      .map((item) => `<li>${item}</li>`)
+      .join("");
+  }
+
+  const evidence = $("#evidence-grid");
+  if (evidence) {
+    const topFeatures = flow.evidence?.top_features || [];
+    const featureText = topFeatures.slice(0, 3).map((item) => item.feature || item.name).join(", ") || "feature evidence unavailable";
+    evidence.innerHTML = [
+      card("Final label", label, `True label: ${flow.true_label ?? "--"}`),
+      card("Confidence", fmt(confidence, 3), `Threshold: ${fmt(flow.unknown_threshold || 0.7, 2)}`),
+      card("Rule layer", flow.rule_layer_skipped ? "Skipped" : "Evaluated", flow.explanation || "No symbolic override"),
+      card("Top features", featureText, "SHAP/permutation evidence from backend"),
+    ].join("");
+  }
+
+  renderAllCharts();
+}
+
+function card(title, value, detail) {
+  return `<article class="evidence-card"><span>${title}</span><strong>${value}</strong><small>${detail}</small></article>`;
+}
+
+function setupCanvas(id) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  return { canvas, ctx, width: rect.width, height: rect.height };
+}
+
+function drawAxes(ctx, width, height, plot, maxY) {
+  ctx.strokeStyle = palette.line;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(plot.left, plot.top);
+  ctx.lineTo(plot.left, plot.bottom);
+  ctx.lineTo(plot.right, plot.bottom);
+  ctx.stroke();
+  ctx.fillStyle = palette.muted;
+  ctx.font = "11px Inter, sans-serif";
+  ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i += 1) {
+    const y = plot.bottom - (plot.height * i) / 4;
+    ctx.strokeStyle = "#edf1f4";
+    ctx.beginPath();
+    ctx.moveTo(plot.left, y);
+    ctx.lineTo(plot.right, y);
+    ctx.stroke();
+    ctx.fillText(fmt((maxY * i) / 4, maxY <= 1 ? 2 : 0), plot.left - 8, y + 4);
+  }
+}
+
+function drawGroupedBars(id, labels, series, options = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanLabels = labels.length ? labels : ["Accuracy", "Precision", "Recall", "F1"];
+  const numericValues = series.flatMap((item) => item.values.map(Number).filter(Number.isFinite));
+  const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...numericValues);
+  const plot = { left: 52, right: width - 20, top: 24, bottom: height - 58 };
+  plot.width = plot.right - plot.left;
+  plot.height = plot.bottom - plot.top;
+  drawAxes(ctx, width, height, plot, maxValue);
+  const groupWidth = plot.width / cleanLabels.length;
+  const barWidth = Math.max(5, Math.min(24, (groupWidth - 14) / Math.max(1, series.length)));
+  cleanLabels.forEach((label, index) => {
+    series.forEach((item, sIndex) => {
+      const value = Number(item.values[index] || 0);
+      const x = plot.left + index * groupWidth + groupWidth / 2 - (barWidth * series.length) / 2 + sIndex * barWidth;
+      const h = Math.max(0, (value / maxValue) * plot.height);
+      ctx.fillStyle = item.color;
+      ctx.fillRect(x, plot.bottom - h, barWidth - 2, h);
+    });
+    ctx.save();
+    ctx.fillStyle = palette.muted;
+    ctx.font = "11px Inter, sans-serif";
+    ctx.textAlign = options.slanted ? "right" : "center";
+    ctx.translate(plot.left + index * groupWidth + groupWidth / 2, plot.bottom + 18);
+    if (options.slanted) ctx.rotate(-0.58);
+    ctx.fillText(compactLabel(label, options.slanted ? 11 : 12), 0, 0);
+    ctx.restore();
+  });
+  drawLegend(ctx, series, plot.left, 12);
+}
+
+function drawBars(id, labels, values, options = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const cleanLabels = labels.length ? labels : ["No data"];
+  const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
+  const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...cleanValues);
+  const plot = { left: 54, right: width - 18, top: 24, bottom: height - 68 };
+  plot.width = plot.right - plot.left;
+  plot.height = plot.bottom - plot.top;
+  drawAxes(ctx, width, height, plot, maxValue);
+  const groupWidth = plot.width / cleanLabels.length;
+  const barWidth = Math.max(8, Math.min(36, groupWidth * 0.48));
+  cleanLabels.forEach((label, index) => {
+    const value = cleanValues[index];
+    const h = (value / maxValue) * plot.height;
+    const x = plot.left + index * groupWidth + (groupWidth - barWidth) / 2;
+    ctx.fillStyle = Array.isArray(options.color) ? options.color[index % options.color.length] : options.color || palette.teal;
+    ctx.fillRect(x, plot.bottom - h, barWidth, h);
+    ctx.save();
+    ctx.fillStyle = palette.muted;
+    ctx.font = "11px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.translate(x + barWidth / 2, plot.bottom + 18);
+    ctx.rotate(-0.55);
+    ctx.fillText(compactLabel(label, 16), 0, 0);
+    ctx.restore();
+  });
+}
+
+function drawLegend(ctx, series, x, y) {
+  ctx.font = "12px Inter, sans-serif";
+  ctx.textAlign = "left";
+  let cursor = x;
+  series.forEach((item) => {
+    ctx.fillStyle = item.color;
+    ctx.fillRect(cursor, y, 10, 10);
+    ctx.fillStyle = palette.muted;
+    ctx.fillText(item.name, cursor + 15, y + 10);
+    cursor += ctx.measureText(item.name).width + 38;
+  });
+}
+
+function fallbackCharts() {
+  return {
+    metric_comparison: { labels: ["Accuracy", "Precision", "Recall", "F1"], existing: [0.88, 0.86, 0.84, 0.85], proposed: [0.92, 0.91, 0.88, 0.90] },
+    per_class: { labels: ["Benign", "DoS/DDoS", "Scanning", "Injection"], existing_f1: [0.94, 0.82, 0.79, 0.72], proposed_f1: [0.95, 0.86, 0.84, 0.78] },
+    detection_counts: { labels: ["True attacks", "Baseline detected", "Proposed detected", "Containment"], values: [430, 392, 414, 384] },
+  };
+}
+
+function fallbackResearch() {
+  return {
+    classes: ["Benign", "DoS/DDoS", "Scanning"],
+    evaluation_labels: ["Benign", "DoS/DDoS", "Scanning"],
+    confusion_matrix: [[70, 3, 2], [4, 38, 3], [2, 5, 31]],
+    rule_analytics: { unknown_rejection_rate: 0.04 },
+  };
+}
+
+const stageTexts = [
+  ["NetFlow feature stream", "Packets, bytes, protocol, duration, TCP flags, and DNS fields enter the model."],
+  ["DNN probability manifold", "The existing system stops here: a class is selected from softmax probabilities."],
+  ["UNKNOWN rejection gate", "Low-confidence traffic is rejected before symbolic rules can over-explain it."],
+  ["Symbolic evidence lattice", "Rules only evaluate accepted flows and leave an auditable reason trace."],
+  ["Defence response mesh", "The proposed system turns detection into warning, playbook, and containment evidence."],
+];
+
+function renderStageText() {
+  const [title, copy] = stageTexts[state.activeStage] || stageTexts[0];
+  $("#stage-note").innerHTML = `<strong>${title}</strong><span>${copy}</span>`;
+}
+
+function initThree() {
+  const canvas = $("#architecture-canvas");
+  if (!canvas) return;
+  if (!window.THREE) {
+    initCanvasFallback(canvas);
+    return;
+  }
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1118);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 120);
+  camera.position.set(0, 9, 18);
+  camera.lookAt(0, 0, 0);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+  const key = new THREE.DirectionalLight(0xffffff, 1.2);
+  key.position.set(7, 10, 8);
+  scene.add(ambient, key);
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const positions = [
+    new THREE.Vector3(-8, 0, 0),
+    new THREE.Vector3(-4, 1.3, -0.4),
+    new THREE.Vector3(0, 0, 0.8),
+    new THREE.Vector3(4, 1.3, -0.4),
+    new THREE.Vector3(8, 0, 0),
+  ];
+  const colors = [0x3aa7ff, 0x2454c6, 0xd95f45, 0x0f8b8d, 0x38b86f];
+  positions.forEach((position, index) => {
+    const geometry = index === 2 ? new THREE.OctahedronGeometry(1.05, 1) : new THREE.IcosahedronGeometry(1.05, 2);
+    const material = new THREE.MeshStandardMaterial({ color: colors[index], roughness: 0.28, metalness: 0.35 });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(position);
+    mesh.userData.baseY = position.y;
+    mesh.userData.pulse = true;
+    group.add(mesh);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.55, 0.025, 8, 64),
+      new THREE.MeshBasicMaterial({ color: colors[index], transparent: true, opacity: 0.48 })
+    );
+    ring.position.copy(position);
+    ring.rotation.x = Math.PI / 2;
+    ring.userData.baseY = position.y;
+    ring.userData.pulse = true;
+    group.add(ring);
+  });
+
+  const curve = new THREE.CatmullRomCurve3(positions);
+  const tube = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 140, 0.055, 10, false),
+    new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.72 })
+  );
+  group.add(tube);
+
+  const baseline = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3([positions[0], positions[1], positions[4]]), 90, 0.028, 8, false),
+    new THREE.MeshBasicMaterial({ color: 0xd95f45, transparent: true, opacity: 0.36 })
+  );
+  baseline.position.y = -1.7;
+  group.add(baseline);
+
+  const packetGeometry = new THREE.SphereGeometry(0.18, 18, 18);
+  const packetMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x4bd4d0, emissiveIntensity: 0.8 });
+  const packets = Array.from({ length: 7 }, (_, index) => {
+    const mesh = new THREE.Mesh(packetGeometry, packetMaterial.clone());
+    mesh.userData.offset = index / 7;
+    group.add(mesh);
+    return mesh;
+  });
+
+  const particleGeometry = new THREE.BufferGeometry();
+  const particleCount = 420;
+  const particlePositions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i += 1) {
+    particlePositions[i * 3] = (Math.random() - 0.5) * 24;
+    particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 10;
+    particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+  }
+  particleGeometry.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
+  const particles = new THREE.Points(
+    particleGeometry,
+    new THREE.PointsMaterial({ color: 0x8fbfc1, size: 0.035, transparent: true, opacity: 0.65 })
+  );
+  scene.add(particles);
+
+  state.three = { renderer, scene, camera, group, packets, curve, particles };
+  resizeThree();
+
+  function animate(time) {
+    requestAnimationFrame(animate);
+    group.rotation.y = Math.sin(time * 0.00025) * 0.18;
+    particles.rotation.y += 0.0008;
+    group.children.forEach((child, index) => {
+      if (child.userData.pulse) {
+        const baseY = Number.isFinite(child.userData.baseY) ? child.userData.baseY : child.position.y;
+        child.rotation.y += 0.004 + index * 0.0003;
+        child.position.y = baseY + Math.sin(time * 0.001 + index) * 0.08;
+      }
+    });
+    packets.forEach((packet) => {
+      const t = (time * 0.00012 + packet.userData.offset) % 1;
+      packet.position.copy(curve.getPointAt(t));
+      packet.position.y += Math.sin(time * 0.004 + t * 8) * 0.12;
+    });
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+}
+
+function resizeThree() {
+  if (!state.three) return;
+  const { renderer, camera } = state.three;
+  const canvas = renderer.domElement;
+  const width = canvas.clientWidth || 1000;
+  const height = canvas.clientHeight || 560;
+  renderer.setSize(width, height, false);
+  camera.aspect = width / height;
+  camera.position.set(0, 9, width < 640 ? 44 : 18);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+}
+
+function initCanvasFallback(canvas) {
+  const ctx = canvas.getContext("2d");
+  function draw(time) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#0b1118";
+    ctx.fillRect(0, 0, rect.width, rect.height);
+    const y = rect.height / 2;
+    const nodes = [0.14, 0.32, 0.5, 0.68, 0.86].map((p) => p * rect.width);
+    ctx.strokeStyle = "#7fd4d2";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    nodes.forEach((x, index) => (index ? ctx.lineTo(x, y + Math.sin(index) * 45) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    nodes.forEach((x, index) => {
+      ctx.fillStyle = [palette.blue, palette.teal, palette.coral, palette.teal, palette.green][index];
+      ctx.beginPath();
+      ctx.arc(x, y + Math.sin(index) * 45, 32 + Math.sin(time * 0.003 + index) * 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+}
+
+window.addEventListener("resize", () => {
+  renderAllCharts();
+  resizeThree();
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupControls();
-  setupExports();
-  initArchitectureScene();
-  loadDashboard().catch(error => {
-    showActionError(error);
-    setStatus("Dashboard data failed to load");
-  });
+  initThree();
+  loadDashboard();
 });

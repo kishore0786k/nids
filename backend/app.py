@@ -7,6 +7,7 @@ logic is isolated in nids_engine.py.
 
 import base64
 import binascii
+import csv
 import json
 import logging
 import os
@@ -329,6 +330,36 @@ def api_export_charts():
 @app.route("/api/backend/status")
 def api_backend_status():
     return jsonify(engine.backend_status())
+
+
+@app.route("/api/research-artifacts")
+def api_research_artifacts():
+    results_dir = PROJECT_ROOT / "results"
+
+    def read_json(name):
+        path = results_dir / name
+        if not path.exists():
+            return {"available": False, "path": str(path)}
+        try:
+            return {"available": True, "path": str(path), "data": json.loads(path.read_text(encoding="utf-8"))}
+        except Exception as exc:
+            return {"available": False, "path": str(path), "error": str(exc)}
+
+    def read_csv(name):
+        path = results_dir / name
+        if not path.exists():
+            return {"available": False, "path": str(path), "rows": []}
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                return {"available": True, "path": str(path), "rows": list(csv.DictReader(handle))}
+        except Exception as exc:
+            return {"available": False, "path": str(path), "error": str(exc), "rows": []}
+
+    return jsonify({
+        "cross_dataset": read_json("cross_dataset_results.json"),
+        "calibration": read_json("calibration_results.json"),
+        "ablation": read_csv("ablation_table.csv"),
+    })
 
 
 @app.route("/api/single-flow")
