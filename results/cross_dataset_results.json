@@ -2,6 +2,7 @@
   "model_path": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\models\\ns_nids_model.pkl",
   "data_path": "data\\NF-UNSW-NB15-v3.csv",
   "download_source": "https://staff.itee.uq.edu.au/marius/NIDS_datasets/",
+  "tau": 0.65,
   "rows": 20000,
   "feature_alignment": {
     "expected_features": 39,
@@ -105,6 +106,146 @@
       "recall": 0.492,
       "f1-score": 0.617943444262911,
       "support": 20000.0
+    }
+  },
+  "existing": {
+    "accuracy": 0.492,
+    "macro_f1": 0.08602606842994062,
+    "false_positive_rate": 0.45978021978021977,
+    "unknown_attack_detection_rate": 0.0,
+    "classification_report": {
+      "Backdoor": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 7.0
+      },
+      "Benign": {
+        "precision": 0.913839576168789,
+        "recall": 0.5402197802197802,
+        "f1-score": 0.6790289719948893,
+        "support": 18200.0
+      },
+      "DoS/DDoS": {
+        "precision": 0.004750593824228029,
+        "recall": 0.13559322033898305,
+        "f1-score": 0.009179575444635685,
+        "support": 59.0
+      },
+      "Injection": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "Password": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "Scanning": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 228.0
+      },
+      "UNKNOWN": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 1506.0
+      },
+      "XSS/MITM": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "accuracy": 0.492,
+      "macro avg": {
+        "precision": 0.11482377124912713,
+        "recall": 0.0844766250698454,
+        "f1-score": 0.08602606842994062,
+        "support": 20000.0
+      },
+      "weighted avg": {
+        "precision": 0.8316080285653795,
+        "recall": 0.492,
+        "f1-score": 0.617943444262911,
+        "support": 20000.0
+      }
+    }
+  },
+  "proposed": {
+    "accuracy": 0.492,
+    "macro_f1": 0.08602606842994062,
+    "false_positive_rate": 0.45978021978021977,
+    "unknown_attack_detection_rate": 0.0,
+    "mean_confidence": 0.9999999329848449,
+    "rejection_rate": 0.0,
+    "classification_report": {
+      "Backdoor": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 7.0
+      },
+      "Benign": {
+        "precision": 0.913839576168789,
+        "recall": 0.5402197802197802,
+        "f1-score": 0.6790289719948893,
+        "support": 18200.0
+      },
+      "DoS/DDoS": {
+        "precision": 0.004750593824228029,
+        "recall": 0.13559322033898305,
+        "f1-score": 0.009179575444635685,
+        "support": 59.0
+      },
+      "Injection": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "Password": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "Scanning": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 228.0
+      },
+      "UNKNOWN": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 1506.0
+      },
+      "XSS/MITM": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "accuracy": 0.492,
+      "macro avg": {
+        "precision": 0.11482377124912713,
+        "recall": 0.0844766250698454,
+        "f1-score": 0.08602606842994062,
+        "support": 20000.0
+      },
+      "weighted avg": {
+        "precision": 0.8316080285653795,
+        "recall": 0.492,
+        "f1-score": 0.617943444262911,
+        "support": 20000.0
+      }
     }
   },
   "confusion_matrix": {

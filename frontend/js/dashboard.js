@@ -14,15 +14,15 @@ const state = {
 };
 
 const palette = {
-  ink: "#172026",
-  muted: "#64707b",
-  line: "#d9e0e6",
-  teal: "#0f8b8d",
-  blue: "#2454c6",
+  ink: "#e7f0f4",
+  muted: "#91a6b2",
+  line: "rgba(151, 184, 197, 0.18)",
+  teal: "#25c7bd",
+  blue: "#6fa8ff",
   coral: "#d95f45",
-  green: "#228b5b",
-  amber: "#c98211",
-  soft: "#eef3f7",
+  green: "#40c77a",
+  amber: "#e5b462",
+  soft: "#13232d",
 };
 
 async function fetchJSON(url, options = {}) {
@@ -75,6 +75,7 @@ function setupNavigation() {
 function setupControls() {
   $("#btn-refresh")?.addEventListener("click", loadDashboard);
   $("#btn-run-all")?.addEventListener("click", runAll);
+  $("#btn-export-charts")?.addEventListener("click", exportCharts);
   $("#btn-analyse-flow")?.addEventListener("click", () => {
     const index = Number($("#flow-index")?.value || 0);
     loadFlow(index);
@@ -172,7 +173,8 @@ async function runAll() {
 function renderDashboard() {
   renderMetrics();
   renderAllCharts();
-  renderMatrix();
+  renderLiveFeed();
+  renderRobustnessTables();
   renderFlow();
   renderStageText();
 }
@@ -181,61 +183,143 @@ function renderMetrics() {
   const metric = state.charts?.metric_comparison || {};
   const labels = metric.labels || ["Accuracy", "Precision", "Recall", "F1"];
   const f1Index = Math.max(0, labels.findIndex((label) => String(label).toLowerCase().includes("f1")));
-  const existingF1 = metric.existing?.[f1Index];
   const proposedF1 = metric.proposed?.[f1Index];
   const unknownRate = state.research?.rule_analytics?.unknown_rejection_rate;
-  const crossF1 = state.artifacts?.cross_dataset?.data?.macro_f1;
+  const analysed = Number(state.research?.defense?.analysed_flows || state.research?.limit || 0);
+  const attacks = Number(state.research?.defense?.attack_flows || 0);
 
-  setText("#metric-proposed-f1", fmt(proposedF1, 3));
-  setText("#metric-existing-f1", fmt(existingF1, 3));
+  setText("#metric-total-flows", analysed ? analysed.toLocaleString() : "--");
+  setText("#metric-attack-rate", pct(analysed ? attacks / analysed : 0));
   setText("#metric-unknown", pct(unknownRate || 0));
-  setText("#metric-cross", fmt(crossF1, 3));
+  setText("#metric-f1-score", pct(proposedF1 || 0));
 }
 
 function renderAllCharts() {
-  const metric = state.charts?.metric_comparison || {};
-  const labels = metric.labels || ["Accuracy", "Precision", "Recall", "F1"];
-  const existing = (metric.existing || [0.86, 0.84, 0.83, 0.84]).map(Number);
-  const proposed = (metric.proposed || [0.91, 0.90, 0.88, 0.89]).map(Number);
-
-  drawMetricProfile("metricChart", labels, [
-    { name: "Existing", values: existing, color: palette.blue },
-    { name: "Proposed", values: proposed, color: palette.teal },
-  ], { maxY: 1 });
-  drawMetricProfile("comparisonChart", labels, [
-    { name: "Existing", values: existing, color: palette.blue },
-    { name: "Proposed", values: proposed, color: palette.teal },
-  ], { maxY: 1 });
-
-  drawRocCurve("classChart", state.charts?.roc_curve || {});
-
-  const ablationRows = state.artifacts?.ablation?.rows || [];
-  const ablationLabels = ablationRows.length
-    ? ablationRows.map((row) => row.Config || row.config)
-    : ["A DNN", "B Rules", "C Confidence", "D Full"];
-  const ablationValues = ablationRows.length
-    ? ablationRows.map((row) => Number(row.F1 || row.f1 || row.F1_macro || row.f1_macro))
-    : [existing.at(-1) || 0.84, (existing.at(-1) || 0.84) + 0.015, (proposed.at(-1) || 0.88) - 0.01, proposed.at(-1) || 0.88];
-  drawAreaLine("ablationChart", ablationLabels, ablationValues, {
-    color: palette.coral,
-    fill: "rgba(217, 95, 69, 0.16)",
-    maxY: 1,
-  });
-
-  const crossF1 = Number(state.artifacts?.cross_dataset?.data?.macro_f1);
-  const internalF1 = proposed[labels.findIndex((label) => String(label).toLowerCase().includes("f1"))] ?? proposed[proposed.length - 1];
-  drawSlopeChart("generalizationChart", ["NF-ToN-IoT-V2", "NF-UNSW-NB15"], [internalF1, Number.isFinite(crossF1) ? crossF1 : internalF1 * 0.72], {
-    color: palette.amber,
-    maxY: 1,
-  });
-
-  const coverage = state.charts?.detection_counts || {};
-  drawCoverageRing("coverageChart", coverage.labels || [], coverage.values || []);
-
-  drawReliabilityCurve("calibrationChart", state.novelty?.chart_ready?.calibration_bins || []);
+  const rows = robustnessRows();
+  drawRobustnessBars("robustnessChart", rows);
+  drawRobustnessBars("comparisonChart", rows);
 
   const probs = state.flow?.probabilities;
   drawProbabilityCurve("probabilityChart", probs?.labels || [], probs?.values || []);
+}
+
+function robustnessRows() {
+  const analytics = state.research?.rule_analytics || {};
+  const defense = state.research?.defense || {};
+  const metrics = state.research?.window_metrics || {};
+  const metricLabels = metrics.labels || ["Accuracy", "Precision", "Recall", "F1"];
+  const accIndex = Math.max(0, metricLabels.findIndex((label) => String(label).toLowerCase().includes("accuracy")));
+  const sameExisting = Number(metrics.baseline_mlp?.[accIndex] ?? 0);
+  const sameProposed = Number(metrics.neuro_symbolic?.[accIndex] ?? 0);
+  const cross = state.artifacts?.cross_dataset?.data || {};
+  const crossExisting = Number(cross.existing?.accuracy ?? cross.classification_report?.accuracy ?? 0);
+  const crossProposed = Number(cross.proposed?.accuracy ?? cross.classification_report?.accuracy ?? 0);
+  const fnBefore = Number(analytics.false_negatives_before || 0);
+  const fnAfter = Number(analytics.false_negatives_after || 0);
+  const fnReduction = fnBefore > 0 ? Math.max(0, (fnBefore - fnAfter) / fnBefore) : 0;
+  return [
+    {
+      metric: "Binary attack recall",
+      existing: Number(analytics.binary_attack_recall_before || 0),
+      proposed: Number(analytics.binary_attack_recall_after || 0),
+      kind: "higher",
+    },
+    {
+      metric: "Unknown rejection",
+      existing: 0,
+      proposed: Number(analytics.unknown_rejection_rate || cross.proposed?.rejection_rate || 0),
+      kind: "higher",
+    },
+    {
+      metric: "Rule evidence coverage",
+      existing: 0,
+      proposed: Number(analytics.rule_trigger_rate || 0),
+      kind: "higher",
+    },
+    {
+      metric: "False-negative reduction",
+      existing: 0,
+      proposed: fnReduction,
+      kind: "higher",
+    },
+    {
+      metric: "Same-dataset accuracy",
+      existing: sameExisting,
+      proposed: sameProposed,
+      kind: "context",
+    },
+    {
+      metric: "Cross-dataset accuracy",
+      existing: crossExisting,
+      proposed: crossProposed,
+      kind: "context",
+    },
+  ];
+}
+
+function renderRobustnessTables() {
+  const rows = robustnessRows();
+  const html = rows.map((row) => {
+    const delta = row.proposed - row.existing;
+    const stateClass = delta > 0.0005 ? "better" : delta < -0.0005 ? "worse" : "same";
+    return `<div class="robust-row ${stateClass}">
+      <span>${row.metric}</span>
+      <strong>${pct(row.existing, 1)}</strong>
+      <strong>${pct(row.proposed, 1)}</strong>
+    </div>`;
+  }).join("");
+  ["#robustness-table", "#chart-robustness-table"].forEach((selector) => {
+    const node = $(selector);
+    if (node) {
+      node.innerHTML = `<div class="robust-head"><span>Metric</span><span>Existing</span><span>Proposed</span></div>${html}`;
+    }
+  });
+}
+
+function renderLiveFeed() {
+  const body = $("#live-feed-body");
+  if (!body) return;
+  const rows = (state.research?.rows || []).slice(0, 8);
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="4">No live rows available.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map((row) => {
+    const rejected = row.rejected_unknown || row.proposed === "UNKNOWN";
+    const label = rejected ? "Unknown Attack" : row.proposed;
+    return `<tr class="${rejected ? "unknown-row" : ""}">
+      <td>#${row.idx}</td>
+      <td>${label}</td>
+      <td>${pct(row.confidence || 0, 0)}</td>
+      <td>${rejected ? "Rejected" : "Accepted"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function exportCharts() {
+  const canvases = [
+    ["cross_dataset_robustness", $("#robustnessChart")],
+    ["presentation_robustness", $("#comparisonChart")],
+    ["class_probabilities", $("#probabilityChart")],
+  ].filter(([, canvas]) => canvas && canvas.width > 1 && canvas.height > 1);
+  if (!canvases.length) {
+    setText("#run-all-feedback", "No charts visible");
+    return;
+  }
+  setText("#run-all-feedback", "Exporting charts");
+  fetchJSON("/api/export-charts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      metadata: { dashboard: "uncertainty-aware-nids", exported_from: window.location.href },
+      charts: canvases.map(([name, canvas]) => ({ name, image: canvas.toDataURL("image/png") })),
+    }),
+  }).then((result) => {
+    setText("#run-all-feedback", `Exported ${result.saved?.length || 0} charts`);
+  }).catch((error) => {
+    console.error(error);
+    setText("#run-all-feedback", "Export failed");
+  });
 }
 
 function renderMatrix() {
@@ -271,10 +355,25 @@ function renderFlow() {
 
   setText("#decision-title", label);
   setText("#decision-copy", `${rejected ? "Rejected as UNKNOWN before symbolic rules." : action} Confidence ${fmt(confidence, 3)}; entropy ${fmt(flow.entropy, 3)}.`);
+  setText("#confidence-value", pct(confidence, 0));
+  const confidenceState = rejected || label === "UNKNOWN"
+    ? "Rejected as unknown"
+    : confidence >= 0.85
+      ? "High confidence"
+      : confidence >= 0.65
+        ? "Moderate confidence"
+        : "Low confidence";
+  setText("#confidence-state", confidenceState);
   const fill = $("#confidence-fill");
   if (fill) fill.style.width = `${Math.max(0, Math.min(1, confidence)) * 100}%`;
 
   const warning = $("#warning-card");
+  const decision = $("#decision-panel");
+  if (decision) {
+    decision.classList.toggle("confidence-high", confidence >= 0.85 && !rejected);
+    decision.classList.toggle("confidence-mid", confidence >= 0.65 && confidence < 0.85 && !rejected);
+    decision.classList.toggle("confidence-low", confidence < 0.65 || rejected);
+  }
   if (warning) {
     warning.classList.toggle("attack", risk === "attack");
     warning.classList.toggle("unknown", rejected || label === "UNKNOWN");
@@ -300,7 +399,43 @@ function renderFlow() {
     ].join("");
   }
 
+  const reasons = topReasons(flow);
+  const reasonList = $("#reason-list");
+  if (reasonList) {
+    reasonList.innerHTML = reasons.map((reason) => `<li>${reason}</li>`).join("");
+  }
+  const fired = (flow.fired_rules || []).find((rule) => rule.rule_id && rule.rule_id !== "NONE");
+  setText("#rule-chip", `Rule: ${fired?.rule_id || (flow.rule_layer_skipped ? "Skipped" : "No trigger")}`);
+  setText("#severity-chip", `Severity: ${flow.defense?.level || "Normal"}`);
+
   renderAllCharts();
+}
+
+function topReasons(flow) {
+  const reasons = [];
+  if (flow.rejected_unknown) {
+    reasons.push(`Confidence below tau ${fmt(flow.unknown_threshold || 0.65, 2)}`);
+    reasons.push(`Entropy ${fmt(flow.entropy, 3)} indicates uncertainty`);
+  }
+  const fired = (flow.fired_rules || []).find((rule) => rule.rule_id && rule.rule_id !== "NONE");
+  if (fired?.reason) reasons.push(fired.reason);
+  const features = flow.evidence?.top_features || [];
+  features.slice(0, 3).forEach((item) => {
+    const name = humanizeFeature(item.feature || item.name || "feature");
+    if (!reasons.some((reason) => reason.includes(name))) reasons.push(name);
+  });
+  if (!reasons.length) {
+    reasons.push("No symbolic rule triggered");
+    reasons.push("Neural prediction retained");
+    reasons.push("Flow kept under drift monitoring");
+  }
+  return reasons.slice(0, 3);
+}
+
+function humanizeFeature(value) {
+  return String(value)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function card(title, value, detail) {
@@ -667,6 +802,61 @@ function drawProbabilityCurve(id, labels, values) {
     color: palette.blue,
     fill: "rgba(36, 84, 198, 0.14)",
     maxY: 1,
+  });
+}
+
+function drawRobustnessBars(id, rows) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const plot = { left: Math.min(192, Math.max(128, width * 0.28)), right: width - 36, top: 30, bottom: height - 30 };
+  plot.width = plot.right - plot.left;
+  const rowHeight = Math.max(36, (plot.bottom - plot.top) / Math.max(1, rows.length));
+  const existingX = plot.left;
+  const proposedX = plot.right;
+  ctx.strokeStyle = palette.line;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(existingX, plot.top - 8);
+  ctx.lineTo(existingX, plot.bottom + 4);
+  ctx.moveTo(proposedX, plot.top - 8);
+  ctx.lineTo(proposedX, plot.bottom + 4);
+  ctx.stroke();
+  ctx.fillStyle = palette.muted;
+  ctx.font = "800 12px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Existing", existingX, 16);
+  ctx.fillText("Proposed", proposedX, 16);
+  rows.forEach((row, index) => {
+    const y = plot.top + index * rowHeight + rowHeight * 0.5;
+    const delta = row.proposed - row.existing;
+    const lineColor = row.kind === "context" && delta < -0.0005 ? palette.amber : delta > 0.0005 ? palette.teal : palette.blue;
+    ctx.fillStyle = palette.muted;
+    ctx.font = "12px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(compactLabel(row.metric, width < 720 ? 18 : 26), plot.left - 16, y + 4);
+    const lift = Math.max(-16, Math.min(16, delta * 42));
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(existingX, y);
+    ctx.bezierCurveTo(
+      existingX + plot.width * 0.32,
+      y - lift,
+      existingX + plot.width * 0.68,
+      y + lift,
+      proposedX,
+      y
+    );
+    ctx.stroke();
+    ctx.fillStyle = "rgba(99, 132, 163, 0.75)";
+    drawPoint(ctx, { x: existingX, y }, "rgba(99, 132, 163, 0.95)", 5);
+    drawPoint(ctx, { x: proposedX, y }, lineColor, 5.5);
+    ctx.fillStyle = palette.ink;
+    ctx.font = "800 11px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(pct(row.existing, 0), existingX, y - 11);
+    ctx.fillText(pct(row.proposed, 0), proposedX, y - 11);
   });
 }
 

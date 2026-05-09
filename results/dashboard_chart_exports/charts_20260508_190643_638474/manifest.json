@@ -1,0 +1,24 @@
+{
+  "created_at": "2026-05-08T19:06:43",
+  "metadata": {
+    "dashboard": "uncertainty-aware-nids",
+    "exported_from": "http://127.0.0.1:5055/"
+  },
+  "saved": [
+    {
+      "name": "cross_dataset_robustness",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260508_190643_638474\\01_cross_dataset_robustness.png",
+      "bytes": 29158
+    },
+    {
+      "name": "presentation_robustness",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260508_190643_638474\\02_presentation_robustness.png",
+      "bytes": 31271
+    },
+    {
+      "name": "class_probabilities",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260508_190643_638474\\03_class_probabilities.png",
+      "bytes": 1192
+    }
+  ]
+}

@@ -21,6 +21,7 @@ DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "NF-UNSW-NB15-v2.csv"
 DEFAULT_REFERENCE_PATH = PROJECT_ROOT / "data" / "test_processed.csv"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "results" / "cross_dataset_results.json"
 NIDS_DATASET_PAGE = "https://staff.itee.uq.edu.au/marius/NIDS_datasets/"
+UNKNOWN_LABEL = "UNKNOWN"
 
 
 class LinkParser(HTMLParser):
@@ -51,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reference_path", type=Path, default=DEFAULT_REFERENCE_PATH)
     parser.add_argument("--output_path", type=Path, default=DEFAULT_OUTPUT_PATH)
     parser.add_argument("--download_url", default=NIDS_DATASET_PAGE)
+    parser.add_argument("--tau", type=float, default=0.65)
     parser.add_argument("--max_rows", type=int, default=None)
     return parser.parse_args()
 
@@ -160,6 +162,32 @@ def load_labels(frame: pd.DataFrame, model_classes: list[str]) -> pd.Series:
     raise ValueError("External dataset must contain Attack, Label, or label.")
 
 
+def unknown_rejection_predictions(model: Any, model_input: pd.DataFrame | np.ndarray, class_labels: list[str], tau: float) -> tuple[np.ndarray, np.ndarray]:
+    if not hasattr(model, "predict_proba"):
+        predictions = np.asarray([str(label) for label in model.predict(model_input)])
+        return predictions, np.ones(len(predictions), dtype=float)
+    probabilities = model.predict_proba(model_input)
+    confidence = np.max(probabilities, axis=1)
+    predictions = np.asarray([str(class_labels[int(np.argmax(row))]) for row in probabilities], dtype=object)
+    predictions[confidence < tau] = UNKNOWN_LABEL
+    return predictions.astype(str), confidence
+
+
+def binary_false_positive_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
+    true_benign = y_true.astype(str).str.lower().isin({"benign", "normal"}).to_numpy()
+    predicted_attack = np.asarray([str(label).lower() not in {"benign", "normal"} for label in y_pred])
+    if not true_benign.any():
+        return 0.0
+    return float(np.mean(predicted_attack[true_benign]))
+
+
+def unknown_detection_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
+    true_unknown = y_true.astype(str).eq(UNKNOWN_LABEL).to_numpy()
+    if not true_unknown.any():
+        return 0.0
+    return float(np.mean(np.asarray(y_pred).astype(str)[true_unknown] == UNKNOWN_LABEL))
+
+
 def main() -> None:
     args = parse_args()
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,12 +203,14 @@ def main() -> None:
     y_true = load_labels(frame, model_classes)
 
     model_input = X if getattr(model, "feature_names_in_", None) is not None else X.to_numpy()
-    y_pred = pd.Series([str(label) for label in model.predict(model_input)])
-    labels = sorted(set(y_true.astype(str)) | set(y_pred.astype(str)) | set(model_classes))
-    report = classification_report(y_true, y_pred, labels=labels, output_dict=True, zero_division=0)
-    matrix = confusion_matrix(y_true, y_pred, labels=labels)
+    existing_pred = np.asarray([str(label) for label in model.predict(model_input)])
+    proposed_pred, confidence = unknown_rejection_predictions(model, model_input, model_classes, args.tau)
+    labels = sorted(set(y_true.astype(str)) | set(existing_pred.astype(str)) | set(proposed_pred.astype(str)) | set(model_classes) | {UNKNOWN_LABEL})
+    existing_report = classification_report(y_true, existing_pred, labels=labels, output_dict=True, zero_division=0)
+    proposed_report = classification_report(y_true, proposed_pred, labels=labels, output_dict=True, zero_division=0)
+    matrix = confusion_matrix(y_true, proposed_pred, labels=labels)
     per_class_f1 = {
-        label: float(report.get(label, {}).get("f1-score", 0.0))
+        label: float(proposed_report.get(label, {}).get("f1-score", 0.0))
         for label in labels
     }
 
@@ -188,6 +218,7 @@ def main() -> None:
         "model_path": args.model_path,
         "data_path": data_path,
         "download_source": args.download_url,
+        "tau": args.tau,
         "rows": int(len(X)),
         "feature_alignment": {
             "expected_features": len(columns),
@@ -196,8 +227,24 @@ def main() -> None:
         },
         "labels": labels,
         "per_class_f1": per_class_f1,
-        "macro_f1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
-        "classification_report": report,
+        "macro_f1": float(f1_score(y_true, proposed_pred, labels=labels, average="macro", zero_division=0)),
+        "classification_report": proposed_report,
+        "existing": {
+            "accuracy": float(existing_report.get("accuracy", 0.0)),
+            "macro_f1": float(f1_score(y_true, existing_pred, labels=labels, average="macro", zero_division=0)),
+            "false_positive_rate": binary_false_positive_rate(y_true, existing_pred),
+            "unknown_attack_detection_rate": unknown_detection_rate(y_true, existing_pred),
+            "classification_report": existing_report,
+        },
+        "proposed": {
+            "accuracy": float(proposed_report.get("accuracy", 0.0)),
+            "macro_f1": float(f1_score(y_true, proposed_pred, labels=labels, average="macro", zero_division=0)),
+            "false_positive_rate": binary_false_positive_rate(y_true, proposed_pred),
+            "unknown_attack_detection_rate": unknown_detection_rate(y_true, proposed_pred),
+            "mean_confidence": float(np.mean(confidence)),
+            "rejection_rate": float(np.mean(proposed_pred == UNKNOWN_LABEL)),
+            "classification_report": proposed_report,
+        },
         "confusion_matrix": {
             "labels": labels,
             "matrix": matrix.tolist(),

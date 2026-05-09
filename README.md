@@ -124,7 +124,7 @@ Latest local smoke run: `20,000` NF-UNSW-NB15-v3 rows, macro-F1 `0.0860`. The lo
 The backend now computes softmax confidence and entropy before symbolic rule fusion. If `max_prob < tau`, the final label is `UNKNOWN`, the symbolic rule layer is skipped for that flow, and the batch rejection rate is logged. The default threshold is configured in `config.yaml`:
 
 ```yaml
-unknown_confidence_threshold: 0.70
+unknown_confidence_threshold: 0.65
 ```
 
 The same threshold is used by `ablation_study.py` and `calibration_analysis.py` unless `--tau` is provided.

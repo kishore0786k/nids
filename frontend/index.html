@@ -6,7 +6,7 @@
   <title>Neuro-Symbolic NIDS Dashboard</title>
   <meta name="description" content="Simple research dashboard for cross-dataset, uncertainty-aware neuro-symbolic intrusion detection." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -21,93 +21,98 @@
       <nav class="nav" aria-label="Dashboard sections">
         <button class="nav-button active" data-target="overview">Overview</button>
         <button class="nav-button" data-target="charts">Charts</button>
-        <button class="nav-button" data-target="matrix">Confusion Matrix</button>
         <button class="nav-button" data-target="defence">Cyber Defence</button>
         <button class="nav-button" data-target="architecture">3D System</button>
       </nav>
       <div class="actions">
         <span id="run-all-feedback" class="run-status">Ready</span>
         <button id="btn-refresh" class="btn ghost">Refresh</button>
+        <button id="btn-export-charts" class="btn ghost">Export Charts</button>
         <button id="btn-run-all" class="btn primary">Run All</button>
       </div>
     </header>
 
     <main>
       <section id="overview" class="section active">
-        <div class="intro-grid">
-          <div class="intro-copy">
-            <h1>Cross-dataset, uncertainty-aware NIDS evidence in one clean view.</h1>
-            <p>The proposed system combines DNN probabilities, symbolic evidence, confidence rejection, calibration evidence, and cross-dataset transfer testing.</p>
-            <div class="summary-line">
-              <span>Contribution</span>
-              <strong>Known attacks are classified; low-confidence unseen traffic is rejected before rule fusion.</strong>
-            </div>
+        <div class="command-hero">
+          <div>
+            <span class="eyeline">Publication-ready NIDS</span>
+            <h1>Uncertainty-Aware Neuro-Symbolic NIDS</h1>
+            <p>The system handles unseen traffic robustly and explains its decisions with confidence rejection, symbolic evidence, and a lightweight operational workflow.</p>
           </div>
-          <div class="decision-panel" id="decision-panel">
-            <span class="eyeline">Current flow decision</span>
-            <h2 id="decision-title">Loading model evidence</h2>
-            <p id="decision-copy">A sampled flow will appear here with confidence, entropy, rule status, and recommended defence action.</p>
-            <div class="confidence-track"><span id="confidence-fill"></span></div>
+          <div class="hero-verdict">
+            <span>Research contribution</span>
+            <strong>Known attacks are detected; low-confidence traffic is rejected as unknown before rule fusion.</strong>
           </div>
         </div>
 
         <div class="metric-strip">
-          <article><span>Proposed F1</span><strong id="metric-proposed-f1">--</strong><small>live window</small></article>
-          <article><span>DNN F1</span><strong id="metric-existing-f1">--</strong><small>baseline</small></article>
-          <article><span>UNKNOWN rate</span><strong id="metric-unknown">--</strong><small>tau = 0.70</small></article>
-          <article><span>External F1</span><strong id="metric-cross">--</strong><small>NF-UNSW-NB15</small></article>
+          <article><span>Total Flows</span><strong id="metric-total-flows">--</strong><small>live evaluation window</small></article>
+          <article><span>Attack Rate</span><strong id="metric-attack-rate">--</strong><small>labelled traffic pressure</small></article>
+          <article><span>Unknown Threats Detected</span><strong id="metric-unknown">--</strong><small>confidence rejection</small></article>
+          <article><span>F1 Score</span><strong id="metric-f1-score">--</strong><small>proposed test performance</small></article>
         </div>
 
-        <div class="split">
-          <section class="panel">
+        <div class="overview-grid">
+          <section class="panel live-feed-panel">
             <div class="panel-head">
-              <h2>Existing vs Proposed</h2>
-              <p>Accuracy, precision, recall, and F1 from backend predictions.</p>
+              <h2>Live Detection Feed</h2>
+              <p>Recent model decisions from the selected test window.</p>
             </div>
-            <canvas id="metricChart" class="chart-canvas"></canvas>
+            <div class="feed-table-wrap">
+              <table class="feed-table">
+                <thead><tr><th>Flow</th><th>Decision</th><th>Conf.</th><th>Gate</th></tr></thead>
+                <tbody id="live-feed-body"></tbody>
+              </table>
+            </div>
           </section>
-          <section class="panel">
-            <div class="panel-head">
-              <h2>What Makes It Novel</h2>
-              <p>Signals that move the project beyond a plain DNN classifier.</p>
+          <section class="decision-panel" id="decision-panel">
+            <span class="eyeline">Current threat summary</span>
+            <h2 id="decision-title">Loading evidence</h2>
+            <p id="decision-copy">A sampled flow will appear here with confidence, entropy, rule status, and recommended defence action.</p>
+            <div class="confidence-meter">
+              <div class="meter-head"><span>Prediction Confidence</span><strong id="confidence-value">--</strong></div>
+              <div class="confidence-track"><span id="confidence-fill"></span></div>
+              <small id="confidence-state">Waiting for model output</small>
             </div>
-            <ul class="novelty-list">
-              <li><strong>Confidence gate:</strong> low-confidence flows become <code>UNKNOWN</code> before symbolic rules.</li>
-              <li><strong>Rule trace:</strong> symbolic signatures are auditable evidence, not hidden post-processing.</li>
-              <li><strong>Transfer test:</strong> NF-UNSW-NB15 generalization is measured and saved.</li>
-              <li><strong>Calibration:</strong> ECE and reliability curves quantify trustworthiness.</li>
-            </ul>
+          </section>
+        </div>
+
+        <div class="overview-grid bottom">
+          <section class="panel robustness-panel">
+            <div class="panel-head">
+              <h2>Cross-Dataset Robustness Evaluation</h2>
+              <p>Measured robustness indicators. Same-dataset accuracy is not the only claim.</p>
+            </div>
+            <canvas id="robustnessChart" class="chart-canvas"></canvas>
+            <div id="robustness-table" class="robustness-table"></div>
+          </section>
+          <section class="panel explanation-panel">
+            <div class="panel-head">
+              <h2>Threat Reason</h2>
+              <p>Only the top three reasons are shown.</p>
+            </div>
+            <ul id="reason-list" class="reason-list"></ul>
+            <div class="explain-foot">
+              <span id="rule-chip">Rule: --</span>
+              <span id="severity-chip">Severity: --</span>
+            </div>
           </section>
         </div>
       </section>
 
       <section id="charts" class="section">
         <div class="section-heading">
-          <span>5-6 paper-ready graphs</span>
-          <h2>Comparison graphs for the manuscript story</h2>
-          <p>These charts stay intentionally simple: each one supports a specific claim about contribution, novelty, or remaining research gap.</p>
+          <span>Exportable figure</span>
+          <h2>Cross-Dataset Robustness Evaluation</h2>
+          <p>A single clean comparison figure for presentations and manuscript discussion.</p>
         </div>
         <div id="chart-explorer">
-          <span class="chart-fallback">Dashboard charts rendered below with browser-native canvas.</span>
+          <span class="chart-fallback">Use Export Charts to save the dashboard canvases as PNG files under results/dashboard_chart_exports.</span>
         </div>
-        <div class="chart-grid">
-          <section class="panel"><div class="panel-head"><h2>1. Metric Profile Curve</h2><p>Accuracy, precision, recall, and F1 as a comparison curve.</p></div><canvas id="comparisonChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>2. ROC Curve</h2><p>Baseline probability surface against the proposed fused output.</p></div><canvas id="classChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>3. Ablation Lift Curve</h2><p>How each component changes macro-F1 across the four configurations.</p></div><canvas id="ablationChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>4. Generalization Slope</h2><p>Internal NF-ToN-IoT-V2 F1 vs external NF-UNSW-NB15 F1.</p></div><canvas id="generalizationChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>5. Detection Coverage Ring</h2><p>Attack detection and containment coverage at a glance.</p></div><canvas id="coverageChart" class="chart-canvas"></canvas></section>
-          <section class="panel"><div class="panel-head"><h2>6. Calibration Reliability</h2><p>Confidence vs observed accuracy with the ideal trust line.</p></div><canvas id="calibrationChart" class="chart-canvas"></canvas></section>
-        </div>
-      </section>
-
-      <section id="matrix" class="section">
-        <div class="section-heading">
-          <span>Error analysis</span>
-          <h2>Confusion matrix for the proposed system</h2>
-          <p>The matrix is compact enough for dashboard inspection and precise enough to guide paper discussion.</p>
-        </div>
-        <section class="panel matrix-panel">
-          <div id="matrix-wrap" class="matrix-wrap" aria-label="Confusion matrix"></div>
+        <section class="panel robustness-panel single">
+          <canvas id="comparisonChart" class="chart-canvas"></canvas>
+          <div id="chart-robustness-table" class="robustness-table"></div>
         </section>
       </section>
 

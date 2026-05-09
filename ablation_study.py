@@ -125,6 +125,31 @@ def apply_full_system(
     return final.astype(str)
 
 
+def false_positive_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
+    benign = y_true.astype(str).str.lower().isin({"benign", "normal"}).to_numpy()
+    predicted_attack = np.asarray([str(label).lower() not in {"benign", "normal"} for label in y_pred])
+    if not benign.any():
+        return 0.0
+    return float(np.mean(predicted_attack[benign]))
+
+
+def unknown_detection_rate(y_pred: np.ndarray) -> float:
+    return float(np.mean(np.asarray(y_pred).astype(str) == UNKNOWN_LABEL))
+
+
+def cross_robustness_score(name: str) -> float:
+    path = PROJECT_ROOT / "results" / "cross_dataset_results.json"
+    if not path.exists():
+        return 0.0
+    try:
+        payload = pd.read_json(path, typ="series")
+        if str(name).startswith(("A", "B")):
+            return float((payload.get("existing") or {}).get("accuracy", 0.0))
+        return float((payload.get("proposed") or {}).get("accuracy", payload.get("macro_f1", 0.0)))
+    except Exception:
+        return 0.0
+
+
 def metric_row(name: str, y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float | str]:
     labels = sorted(set(y_true.astype(str)) | set(pd.Series(y_pred).astype(str)))
     return {
@@ -132,6 +157,9 @@ def metric_row(name: str, y_true: pd.Series, y_pred: np.ndarray) -> dict[str, fl
         "Precision": float(precision_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
         "Recall": float(recall_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
         "F1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
+        "False_Positive_Rate": false_positive_rate(y_true, y_pred),
+        "Unknown_Detection_Rate": unknown_detection_rate(y_pred),
+        "Cross_Dataset_Robustness": cross_robustness_score(name),
     }
 
 
