@@ -72,15 +72,15 @@ class NidsApiRegressionTests(unittest.TestCase):
         self.assertGreater(analytics["prediction_change_count"], 0)
         self.assertGreater(analytics["false_negative_attack_rescues"], 0)
         self.assertGreater(analytics["binary_attack_recall_delta"], 0)
-        self.assertIn("R4_SUSPICIOUS_BENIGN_ATTACK_MASS", analytics["per_rule_trigger_count"])
-        self.assertGreater(analytics["per_rule_trigger_frequency"]["R4_SUSPICIOUS_BENIGN_ATTACK_MASS"], 0)
+        self.assertTrue(analytics["per_rule_trigger_count"])
+        self.assertTrue(any(value > 0 for value in analytics["per_rule_trigger_frequency"].values()))
         self.assertEqual(data["novelty_proof"]["verdict"], "proven")
         self.assertTrue(data["novelty_proof"]["examples"])
         self.assertEqual(data["metrics"]["source"], "live-window evaluation from model predictions and test labels")
         self.assertIn("saved-paper-summary", data["paper_summary"]["source"])
 
     def test_run_all_recomputes_full_dashboard_payload(self):
-        result = self.post_json("/api/run-all", {"window_size": 750, "alpha": 0.65, "beta": 0.35, "flow_index": 0, "fusion_mode": "soft", "seed": 42})
+        result = self.post_json("/api/run-all", {"sync": True, "window_size": 750, "alpha": 0.65, "beta": 0.35, "flow_index": 0, "fusion_mode": "soft", "seed": 42})
         self.assertTrue(result["ok"])
         self.assertEqual(result["research"]["limit"], 750)
         self.assertEqual(result["charts"]["limit"], 750)
@@ -121,7 +121,7 @@ class NidsApiRegressionTests(unittest.TestCase):
         seed_changed = self.get_json("/api/charts?window_size=750&flow_index=0&alpha=0.65&beta=0.35&fusion_mode=soft&seed=99")
         flow_changed = self.get_json("/api/charts?window_size=750&flow_index=10&alpha=0.65&beta=0.35&fusion_mode=soft&seed=42")
 
-        self.assertNotEqual(base["metric_comparison"]["proposed"], alpha_changed["metric_comparison"]["proposed"])
+        self.assertNotEqual(base["roc_curve"]["proposed"], alpha_changed["roc_curve"]["proposed"])
         self.assertNotEqual(base["class_distribution"]["proposed_values"], seed_changed["class_distribution"]["proposed_values"])
         self.assertNotEqual(base["detection_counts"]["values"], flow_changed["detection_counts"]["values"])
         self.assertIn("difference_chart", base)

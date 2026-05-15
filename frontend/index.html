@@ -102,16 +102,158 @@
       </section>
 
       <section id="charts" class="section">
-        <div class="section-heading">
-          <span>Exportable figure</span>
-          <h2>Cross-Dataset Robustness Evaluation</h2>
-          <p>A single clean comparison figure for presentations and manuscript discussion.</p>
+        <div class="section-heading charts-heading">
+          <span>Publication figure suite</span>
+          <h2>Evaluation Figures</h2>
+          <p>Every figure is rendered from the current backend payload. Improvements, ties, and regressions are labelled without inflating claims.</p>
         </div>
         <div id="chart-explorer">
-          <span class="chart-fallback">Use Export Charts to save the dashboard canvases as PNG files under results/dashboard_chart_exports.</span>
+          <span class="chart-fallback">Use Export Charts to save high-resolution PNG figures under results/dashboard_chart_exports.</span>
         </div>
-        <section class="panel robustness-panel single">
-          <canvas id="comparisonChart" class="chart-canvas"></canvas>
+
+        <div class="figure-summary" id="figure-summary"></div>
+
+        <div class="figure-grid">
+          <article class="figure-card wide">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 1</span>
+                <h3>Metric Trends Across Evaluation Windows</h3>
+              </div>
+              <small id="metric-trend-note">Live-window recomputation</small>
+            </div>
+            <canvas id="metricTrendChart" class="chart-canvas figure-canvas" data-export-name="01_metric_trends"></canvas>
+            <p class="caption" id="metric-trend-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 2</span>
+                <h3>Existing vs Proposed Metrics</h3>
+              </div>
+            </div>
+            <canvas id="metricComparisonChart" class="chart-canvas figure-canvas" data-export-name="02_existing_vs_proposed_metrics"></canvas>
+            <p class="caption" id="metric-comparison-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 3</span>
+                <h3>Per-Class F1 Comparison</h3>
+              </div>
+            </div>
+            <canvas id="perClassF1Chart" class="chart-canvas figure-canvas" data-export-name="03_per_class_f1"></canvas>
+            <p class="caption" id="per-class-caption"></p>
+          </article>
+
+          <article class="figure-card wide">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 4</span>
+                <h3>Confusion Matrix</h3>
+              </div>
+              <small>Rows are true labels; columns are proposed predictions.</small>
+            </div>
+            <canvas id="confusionMatrixChart" class="chart-canvas matrix-canvas figure-canvas" data-export-name="04_confusion_matrix"></canvas>
+            <p class="caption" id="confusion-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 5a</span>
+                <h3>ROC Curve</h3>
+              </div>
+            </div>
+            <canvas id="rocCurveChart" class="chart-canvas figure-canvas" data-export-name="05a_roc_curve"></canvas>
+            <p class="caption" id="roc-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 5b</span>
+                <h3>Precision-Recall Curve</h3>
+              </div>
+            </div>
+            <canvas id="prCurveChart" class="chart-canvas figure-canvas" data-export-name="05b_precision_recall_curve"></canvas>
+            <p class="caption" id="pr-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 6a</span>
+                <h3>Confidence Distribution</h3>
+              </div>
+            </div>
+            <canvas id="confidenceHistogramChart" class="chart-canvas figure-canvas" data-export-name="06a_confidence_distribution"></canvas>
+            <p class="caption" id="confidence-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 6b</span>
+                <h3>Threshold and Rejection View</h3>
+              </div>
+            </div>
+            <canvas id="thresholdRejectionChart" class="chart-canvas figure-canvas" data-export-name="06b_threshold_rejection"></canvas>
+            <p class="caption" id="threshold-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 7</span>
+                <h3>Reliability Calibration</h3>
+              </div>
+            </div>
+            <canvas id="calibrationChart" class="chart-canvas figure-canvas" data-export-name="07_reliability_calibration"></canvas>
+            <p class="caption" id="calibration-caption"></p>
+          </article>
+
+          <article class="figure-card">
+            <div class="figure-head">
+              <div>
+                <span>Fig. 8</span>
+                <h3>Ablation Summary</h3>
+              </div>
+            </div>
+            <canvas id="ablationChart" class="chart-canvas figure-canvas" data-export-name="08_ablation_summary"></canvas>
+            <p class="caption" id="ablation-caption"></p>
+          </article>
+        </div>
+
+        <section class="panel publication-notes">
+          <div class="panel-head">
+            <h2>Neuro-Symbolic Impact Proof</h2>
+            <p>Concise manuscript notes generated from the current evaluation payload.</p>
+          </div>
+          <div class="notes-grid">
+            <article>
+              <h3>Ablation</h3>
+              <p id="ablation-summary">Loading ablation evidence.</p>
+            </article>
+            <article>
+              <h3>Limitations</h3>
+              <ul id="limitations-list"></ul>
+            </article>
+            <article>
+              <h3>Reproducibility</h3>
+              <ul id="reproducibility-list"></ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel robustness-panel single legacy-chart-panel">
+          <div class="panel-head">
+            <h2>Robustness Detail</h2>
+            <p>Compact comparison table retained for reviewer discussion.</p>
+          </div>
+          <canvas id="comparisonChart" class="chart-canvas figure-canvas" data-export-name="09_robustness_detail"></canvas>
           <div id="chart-robustness-table" class="robustness-table"></div>
         </section>
       </section>

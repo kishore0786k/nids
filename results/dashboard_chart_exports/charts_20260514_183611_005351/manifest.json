@@ -1,0 +1,66 @@
+{
+  "created_at": "2026-05-14T18:36:11",
+  "metadata": {
+    "dashboard": "uncertainty-aware-nids",
+    "exported_from": "http://127.0.0.1:5050/",
+    "export_scale": 2,
+    "figure_source": "current live backend payload"
+  },
+  "saved": [
+    {
+      "name": "01_metric_trends",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\01_01_metric_trends.png",
+      "bytes": 367935
+    },
+    {
+      "name": "02_existing_vs_proposed_metrics",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\02_02_existing_vs_proposed_metrics.png",
+      "bytes": 112397
+    },
+    {
+      "name": "03_per_class_f1",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\03_03_per_class_f1.png",
+      "bytes": 169880
+    },
+    {
+      "name": "04_confusion_matrix",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\04_04_confusion_matrix.png",
+      "bytes": 434385
+    },
+    {
+      "name": "05a_roc_curve",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\05_05a_roc_curve.png",
+      "bytes": 179543
+    },
+    {
+      "name": "05b_precision_recall_curve",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\06_05b_precision_recall_curve.png",
+      "bytes": 190527
+    },
+    {
+      "name": "06a_confidence_distribution",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\07_06a_confidence_distribution.png",
+      "bytes": 115139
+    },
+    {
+      "name": "06b_threshold_rejection",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\08_06b_threshold_rejection.png",
+      "bytes": 171685
+    },
+    {
+      "name": "07_reliability_calibration",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\09_07_reliability_calibration.png",
+      "bytes": 193775
+    },
+    {
+      "name": "08_ablation_summary",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\10_08_ablation_summary.png",
+      "bytes": 118624
+    },
+    {
+      "name": "09_robustness_detail",
+      "file": "C:\\Users\\kisho\\Downloads\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260514_183611_005351\\11_09_robustness_detail.png",
+      "bytes": 388475
+    }
+  ]
+}
