@@ -707,6 +707,7 @@ def apply_symbolic_rules(
     beta: Optional[float] = None,
     confidence_threshold: float = 0.70,
     strong_rule_threshold: float = 0.85,
+    soft_override_margin: float = 0.02,
     adversarial_probs: Optional[Sequence[float] | np.ndarray] = None,
     gnn_anomaly_score: Optional[float] = None,
     adversarial_threshold: float = 0.15,
@@ -914,14 +915,14 @@ def apply_symbolic_rules(
             fused = alpha_value * probs + beta_value * normalized_rule_scores
             fused = fused / max(float(fused.sum()), 1e-12)
             candidate_label = labels[int(np.argmax(fused))]
-            candidate_strength = strongest_strength
-            if _override_allowed(
-                final_label,
-                candidate_label,
-                confidence,
-                candidate_strength,
-                confidence_threshold,
-                strong_rule_threshold,
+            current_idx = _label_index(labels, final_label)
+            candidate_idx = _label_index(labels, candidate_label)
+            margin = max(0.0, float(soft_override_margin))
+            if (
+                candidate_idx is not None
+                and current_idx is not None
+                and candidate_label != final_label
+                and float(fused[candidate_idx]) >= float(fused[current_idx]) + margin
             ):
                 final_label = candidate_label
         else:
@@ -967,6 +968,7 @@ def apply_symbolic_rules_batch(
     beta: Optional[float] = None,
     confidence_threshold: float = 0.70,
     strong_rule_threshold: float = 0.85,
+    soft_override_margin: float = 0.02,
 ) -> tuple[np.ndarray, list[list[dict[str, Any]]], list[float]]:
     """Vectorized publication evaluator for the core symbolic NIDS rules."""
     labels = [str(label) for label in class_labels]
@@ -1133,6 +1135,20 @@ def apply_symbolic_rules_batch(
             fused = alpha * probs[idx] + beta_value * normalized_rule_scores
             fused = fused / max(float(fused.sum()), 1e-12)
             candidate = labels[int(np.argmax(fused))]
+            current_idx = _label_index(labels, str(base[idx]))
+            candidate_idx = _label_index(labels, candidate)
+            margin = max(0.0, float(soft_override_margin))
+            if (
+                candidate_idx is None
+                or current_idx is None
+                or candidate == str(base[idx])
+                or float(fused[candidate_idx]) < float(fused[current_idx]) + margin
+            ):
+                continue
+            final[idx] = candidate
+            for rule in rules:
+                rule["applied"] = bool(str(rule.get("new_label")) == candidate and candidate != str(base[idx]))
+            continue
 
         if _override_allowed(
             str(base[idx]),

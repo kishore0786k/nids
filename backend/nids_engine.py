@@ -15,6 +15,7 @@ from sklearn.metrics import auc, average_precision_score, classification_report,
 from sklearn.preprocessing import label_binarize
 
 from src.neuro_symbolic import apply_symbolic_rules, apply_symbolic_rules_batch, build_symbolic_context
+from src.publication_protocol import apply_temperature, fit_temperature, validation_split
 from src.project_paths import (
     METRICS_PATH,
     MODEL_PATH,
@@ -46,6 +47,7 @@ _y_test = None
 _classes = None
 _metrics = None
 _symbolic_context = None
+_probability_temperature = None
 _evaluation_cache = {}
 _analysis_cache = {}
 _chart_cache = {}
@@ -228,7 +230,7 @@ def _clear_caches() -> None:
 
 
 def _reset_resources() -> None:
-    global _base_model, _robust_model, _X_test, _y_test, _classes, _metrics, _symbolic_context
+    global _base_model, _robust_model, _X_test, _y_test, _classes, _metrics, _symbolic_context, _probability_temperature
     _base_model = None
     _robust_model = None
     _X_test = None
@@ -236,6 +238,7 @@ def _reset_resources() -> None:
     _classes = None
     _metrics = None
     _symbolic_context = None
+    _probability_temperature = None
     _clear_caches()
 
 
@@ -321,6 +324,34 @@ def _model_input(model: Any, frame: pd.DataFrame) -> pd.DataFrame | np.ndarray:
     return frame if hasattr(model, "feature_names_in_") else frame.to_numpy()
 
 
+def _get_probability_temperature() -> float:
+    global _probability_temperature
+    load_resources()
+    if _probability_temperature is not None:
+        return float(_probability_temperature)
+
+    if not _as_path(TRAIN_PATH).exists():
+        _probability_temperature = 1.0
+        return float(_probability_temperature)
+    train_df = pd.read_csv(TRAIN_PATH)
+    if LABEL_COLUMN not in train_df.columns or train_df.empty:
+        _probability_temperature = 1.0
+        return float(_probability_temperature)
+
+    X_train = train_df.drop(columns=[LABEL_COLUMN])
+    y_train = train_df[LABEL_COLUMN].astype(str)
+    _, _, X_val, y_val = validation_split(X_train, y_train, validation_size=0.20, random_state=42)
+    val_probs = _base_model.predict_proba(_model_input(_base_model, X_val))
+    temperature, validation_nll = fit_temperature(val_probs, y_val, _classes)
+    _probability_temperature = float(temperature)
+    LOGGER.info("Probability temperature calibrated on validation split: T=%.3f, NLL=%.6f", temperature, validation_nll)
+    return float(_probability_temperature)
+
+
+def _calibrated_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    return apply_temperature(probabilities, _get_probability_temperature())
+
+
 def _get_symbolic_context() -> dict[str, Any]:
     global _symbolic_context
     load_resources()
@@ -342,7 +373,7 @@ def _get_symbolic_context() -> dict[str, Any]:
     X_train = train_df.drop(columns=[LABEL_COLUMN])
     y_train = train_df[LABEL_COLUMN].astype(str)
     train_input = _model_input(_base_model, X_train)
-    train_probs = _base_model.predict_proba(train_input)
+    train_probs = _calibrated_probabilities(_base_model.predict_proba(train_input))
     train_base = [str(_classes[int(idx)]) for idx in np.argmax(train_probs, axis=1)]
     _symbolic_context = build_symbolic_context(
         X_train,
@@ -679,31 +710,36 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
     true_label = str(_y_test.iloc[idx])
     sample_frame = sample.to_frame().T
     model_input = _model_input(_base_model, sample_frame)
-    base_probs = _base_model.predict_proba(model_input)[0]
+    base_probs = _calibrated_probabilities(_base_model.predict_proba(model_input))[0]
     base_pred = str(_classes[int(np.argmax(base_probs))])
     confidence = float(np.max(base_probs))
     entropy = float(_entropy(np.asarray([base_probs]))[0])
     rejected_unknown = confidence < config.unknown_threshold
+    ns_label, fired_rules, strength = apply_symbolic_rules(
+        sample,
+        base_pred,
+        predicted_probs=base_probs,
+        class_labels=_classes,
+        rule_context=_get_symbolic_context(),
+        fusion_mode=config.fusion_mode,
+        alpha=config.alpha,
+        beta=config.beta,
+        confidence_threshold=0.55 + 0.30 * config.alpha,
+        strong_rule_threshold=0.72 + 0.20 * config.alpha,
+    )
+    ns_label = str(ns_label)
     if rejected_unknown:
-        ns_label = UNKNOWN_LABEL
-        fired_rules = _empty_rule_trace(
-            f"Neural confidence {confidence:.3f} is below unknown threshold {config.unknown_threshold:.3f}; symbolic layer skipped."
+        fired_rules.append(
+            {
+                "rule_id": "UNKNOWN_ABSTENTION_FLAG",
+                "old_label": ns_label,
+                "new_label": ns_label,
+                "strength": 0.0,
+                "reason": f"Neural confidence {confidence:.3f} is below unknown threshold {config.unknown_threshold:.3f}; label retained and flagged for review.",
+                "evidence": {"confidence": round(confidence, 6), "tau": round(config.unknown_threshold, 6)},
+                "applied": False,
+            }
         )
-        strength = 0.0
-    else:
-        ns_label, fired_rules, strength = apply_symbolic_rules(
-            sample,
-            base_pred,
-            predicted_probs=base_probs,
-            class_labels=_classes,
-            rule_context=_get_symbolic_context(),
-            fusion_mode=config.fusion_mode,
-            alpha=config.alpha,
-            beta=config.beta,
-            confidence_threshold=0.55 + 0.30 * config.alpha,
-            strong_rule_threshold=0.72 + 0.20 * config.alpha,
-        )
-        ns_label = str(ns_label)
     applied = [rule for rule in fired_rules if bool(rule.get("applied"))]
     changed_prediction = ns_label != base_pred
     explanation = (
@@ -733,7 +769,8 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
         "entropy": json_number(entropy, 6),
         "unknown_threshold": json_number(config.unknown_threshold, 6),
         "rejected_unknown": bool(rejected_unknown),
-        "rule_layer_skipped": bool(rejected_unknown),
+        "unknown_abstention": bool(rejected_unknown),
+        "rule_layer_skipped": False,
         "risk": "attack" if is_attack(ns_label) else "benign",
         "defense": defense_action(ns_label, confidence, fired_rules),
         "fired_rules": fired_rules,
@@ -925,7 +962,7 @@ def _rule_analytics(
     triggered_samples = 0
     applied_samples = 0
     for rules in rule_traces:
-        active = [rule for rule in rules if rule.get("rule_id") != "NONE"]
+        active = [rule for rule in rules if rule.get("rule_id") not in {"NONE", "UNKNOWN_ABSTENTION_FLAG"}]
         applied = [rule for rule in active if bool(rule.get("applied"))]
         if active:
             triggered_samples += 1
@@ -1014,39 +1051,32 @@ def _evaluate_window(
     subset_X = _X_test.iloc[indices].reset_index(drop=True)
     true_arr = _y_test.iloc[indices].astype(str).tolist()
     model_input = _model_input(_base_model, subset_X)
-    probabilities = _base_model.predict_proba(model_input)
+    probabilities = _calibrated_probabilities(_base_model.predict_proba(model_input))
     confidence, entropy, rejected_unknown = _unknown_rejection(probabilities, config.unknown_threshold)
     base_preds = np.asarray([str(_classes[int(np.argmax(row))]) for row in probabilities])
-    ns_preds = base_preds.astype(object).copy()
-    rule_traces = [
-        _empty_rule_trace("No symbolic rule triggered; neural prediction retained.")
-        for _ in range(len(subset_X))
-    ]
-    strengths = [0.0 for _ in range(len(subset_X))]
-    accepted_mask = ~rejected_unknown
-    if accepted_mask.any():
-        accepted_preds, accepted_rules, accepted_strengths = apply_symbolic_rules_batch(
-            subset_X.loc[accepted_mask].reset_index(drop=True),
-            base_preds[accepted_mask],
-            probabilities[accepted_mask],
-            class_labels=_classes,
-            rule_context=_get_symbolic_context(),
-            fusion_mode=config.fusion_mode,
-            alpha=config.alpha,
-            beta=config.beta,
-            confidence_threshold=0.55 + 0.30 * config.alpha,
-            strong_rule_threshold=0.72 + 0.20 * config.alpha,
-        )
-        accepted_positions = np.flatnonzero(accepted_mask)
-        for local_idx, row_idx in enumerate(accepted_positions):
-            ns_preds[row_idx] = str(accepted_preds[local_idx])
-            rule_traces[row_idx] = accepted_rules[local_idx]
-            strengths[row_idx] = float(accepted_strengths[local_idx])
+    ns_preds, rule_traces, strengths = apply_symbolic_rules_batch(
+        subset_X,
+        base_preds,
+        probabilities,
+        class_labels=_classes,
+        rule_context=_get_symbolic_context(),
+        fusion_mode=config.fusion_mode,
+        alpha=config.alpha,
+        beta=config.beta,
+        confidence_threshold=0.55 + 0.30 * config.alpha,
+        strong_rule_threshold=0.72 + 0.20 * config.alpha,
+    )
     for row_idx in np.flatnonzero(rejected_unknown):
-        ns_preds[row_idx] = UNKNOWN_LABEL
-        strengths[row_idx] = 0.0
-        rule_traces[row_idx] = _empty_rule_trace(
-            f"Neural confidence {confidence[row_idx]:.3f} is below unknown threshold {config.unknown_threshold:.3f}; symbolic layer skipped."
+        rule_traces[row_idx].append(
+            {
+                "rule_id": "UNKNOWN_ABSTENTION_FLAG",
+                "old_label": str(ns_preds[row_idx]),
+                "new_label": str(ns_preds[row_idx]),
+                "strength": 0.0,
+                "reason": f"Neural confidence {confidence[row_idx]:.3f} is below unknown threshold {config.unknown_threshold:.3f}; label retained and flagged for review.",
+                "evidence": {"confidence": round(float(confidence[row_idx]), 6), "tau": round(config.unknown_threshold, 6)},
+                "applied": False,
+            }
         )
     rejection_rate = float(np.mean(rejected_unknown)) if len(rejected_unknown) else 0.0
     LOGGER.info(
@@ -1060,8 +1090,6 @@ def _evaluate_window(
     proposed_probabilities = _fused_probabilities(probabilities, ns_preds, rule_traces, config)
 
     ns_labels = list(_classes)
-    if np.any(ns_preds == UNKNOWN_LABEL):
-        ns_labels.append(UNKNOWN_LABEL)
     base_report = classification_report(true_arr, base_preds, labels=_classes, output_dict=True, zero_division=0)
     ns_report = classification_report(true_arr, ns_preds, labels=ns_labels, output_dict=True, zero_division=0)
     base_acc = float(np.mean(base_preds == np.asarray(true_arr)))
@@ -1098,7 +1126,8 @@ def _evaluate_window(
             "confidence": json_number(float(confidence[i]), 6),
             "entropy": json_number(float(entropy[i]), 6),
             "rejected_unknown": bool(rejected_unknown[i]),
-            "rule_layer_skipped": bool(rejected_unknown[i]),
+            "unknown_abstention": bool(rejected_unknown[i]),
+            "rule_layer_skipped": False,
             "fired_rules": [
                 rule["rule_id"]
                 for rule in rule_traces[i]
@@ -1636,7 +1665,7 @@ def novelty_data(limit=2000, alpha=0.10, flow_index=0, seed=DEFAULT_SEED):
     subset_X = _X_test.iloc[indices].reset_index(drop=True)
     subset_y = _y_test.iloc[indices].astype(str).tolist()
     model_input = _model_input(_base_model, subset_X)
-    probs = _base_model.predict_proba(model_input)
+    probs = _calibrated_probabilities(_base_model.predict_proba(model_input))
     preds = [str(_classes[int(np.argmax(row))]) for row in probs]
     correct = np.asarray([p == t for p, t in zip(preds, subset_y)], dtype=float)
     confidence = np.max(probs, axis=1)

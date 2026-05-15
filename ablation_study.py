@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
-from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import f1_score, precision_score, recall_score
 
-from src.neuro_symbolic import apply_symbolic_rules_batch, build_symbolic_context
+from src.publication_protocol import (
+    abstention_metrics,
+    apply_rules_closed_set,
+    apply_temperature,
+    build_context_from_split,
+    class_predictions,
+    closed_set_metrics,
+    expected_calibration_error,
+    false_positive_rate,
+    fit_temperature,
+    json_ready_dataclass,
+    model_input,
+    tune_rule_fusion,
+    tune_tau,
+    validation_split,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -17,8 +31,10 @@ DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "ns_nids_model.pkl"
 DEFAULT_DATA_PATH = PROJECT_ROOT / "data" / "test_processed.csv"
 DEFAULT_TRAIN_PATH = PROJECT_ROOT / "data" / "train_processed.csv"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "results" / "ablation_table.csv"
+DEFAULT_OPEN_SET_OUTPUT_PATH = PROJECT_ROOT / "results" / "open_set_abstention_table.csv"
+DEFAULT_CROSS_DATASET_OUTPUT_PATH = PROJECT_ROOT / "results" / "cross_dataset_table.csv"
+DEFAULT_PROTOCOL_OUTPUT_PATH = PROJECT_ROOT / "results" / "publication_reporting_protocol.json"
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-UNKNOWN_LABEL = "UNKNOWN"
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,30 +43,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data_path", type=Path, default=DEFAULT_DATA_PATH)
     parser.add_argument("--train_path", type=Path, default=DEFAULT_TRAIN_PATH)
     parser.add_argument("--output_path", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--open_set_output_path", type=Path, default=DEFAULT_OPEN_SET_OUTPUT_PATH)
+    parser.add_argument("--cross_dataset_output_path", type=Path, default=DEFAULT_CROSS_DATASET_OUTPUT_PATH)
+    parser.add_argument("--protocol_output_path", type=Path, default=DEFAULT_PROTOCOL_OUTPUT_PATH)
     parser.add_argument("--config_path", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--tau", type=float, default=None)
+    parser.add_argument("--validation_size", type=float, default=0.20)
+    parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument("--max_rows", type=int, default=None)
     return parser.parse_args()
-
-
-def read_tau(config_path: Path, default: float = 0.70) -> float:
-    if not config_path.exists():
-        return default
-    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line or ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        if key.strip() in {"unknown_confidence_threshold", "tau"}:
-            try:
-                return float(value.strip().strip("'\""))
-            except ValueError:
-                return default
-    return default
-
-
-def model_input(model: Any, frame: pd.DataFrame) -> pd.DataFrame | np.ndarray:
-    return frame if getattr(model, "feature_names_in_", None) is not None else frame.to_numpy()
 
 
 def load_split(path: Path, max_rows: int | None = None) -> tuple[pd.DataFrame, pd.Series]:
@@ -61,106 +62,43 @@ def load_split(path: Path, max_rows: int | None = None) -> tuple[pd.DataFrame, p
     return frame.drop(columns=[label_col]), frame[label_col].astype(str)
 
 
-def build_context(model: Any, train_path: Path, class_labels: list[str]) -> dict[str, Any]:
-    X_train, y_train = load_split(train_path)
-    probs = model.predict_proba(model_input(model, X_train))
-    base_predictions = [class_labels[int(np.argmax(row))] for row in probs]
-    return build_symbolic_context(
-        X_train,
-        reference_y=y_train.tolist(),
-        class_labels=class_labels,
-        predicted_probs=probs,
-        base_predictions=base_predictions,
-    )
+def metric_row(name: str, y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float | str]:
+    metrics = closed_set_metrics(y_true, y_pred)
+    return {
+        "System": name,
+        "Accuracy": metrics["accuracy"],
+        "Precision": metrics["precision"],
+        "Recall": metrics["recall"],
+        "Macro_F1": metrics["macro_f1"],
+        "False_Positive_Rate": false_positive_rate(y_true, y_pred),
+    }
 
 
-def apply_confidence_rejection(predictions: np.ndarray, probabilities: np.ndarray, tau: float) -> np.ndarray:
-    final = predictions.astype(object).copy()
-    final[np.max(probabilities, axis=1) < tau] = UNKNOWN_LABEL
-    return final.astype(str)
-
-
-def apply_rules(
-    X: pd.DataFrame,
-    predictions: np.ndarray,
-    probabilities: np.ndarray,
-    class_labels: list[str],
-    context: dict[str, Any],
-) -> np.ndarray:
-    final, _, _ = apply_symbolic_rules_batch(
-        X,
-        predictions,
-        probabilities,
-        class_labels=class_labels,
-        rule_context=context,
-        fusion_mode="hard",
-        alpha=0.65,
-        beta=0.35,
-        confidence_threshold=0.55 + 0.30 * 0.65,
-        strong_rule_threshold=0.72 + 0.20 * 0.65,
-    )
-    return np.asarray([str(label) for label in final])
-
-
-def apply_full_system(
-    X: pd.DataFrame,
-    predictions: np.ndarray,
-    probabilities: np.ndarray,
-    class_labels: list[str],
-    context: dict[str, Any],
-    tau: float,
-) -> np.ndarray:
-    confidence = np.max(probabilities, axis=1)
-    accepted = confidence >= tau
-    final = predictions.astype(object).copy()
-    final[~accepted] = UNKNOWN_LABEL
-    if accepted.any():
-        final[accepted] = apply_rules(
-            X.loc[accepted].reset_index(drop=True),
-            predictions[accepted],
-            probabilities[accepted],
-            class_labels,
-            context,
-        )
-    return final.astype(str)
-
-
-def false_positive_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
-    benign = y_true.astype(str).str.lower().isin({"benign", "normal"}).to_numpy()
-    predicted_attack = np.asarray([str(label).lower() not in {"benign", "normal"} for label in y_pred])
-    if not benign.any():
-        return 0.0
-    return float(np.mean(predicted_attack[benign]))
-
-
-def unknown_detection_rate(y_pred: np.ndarray) -> float:
-    return float(np.mean(np.asarray(y_pred).astype(str) == UNKNOWN_LABEL))
-
-
-def cross_robustness_score(name: str) -> float:
+def cross_dataset_table() -> pd.DataFrame:
     path = PROJECT_ROOT / "results" / "cross_dataset_results.json"
     if not path.exists():
-        return 0.0
-    try:
-        payload = pd.read_json(path, typ="series")
-        if str(name).startswith(("A", "B")):
-            return float((payload.get("existing") or {}).get("accuracy", 0.0))
-        return float((payload.get("proposed") or {}).get("accuracy", payload.get("macro_f1", 0.0)))
-    except Exception:
-        return 0.0
-
-
-def metric_row(name: str, y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float | str]:
-    labels = sorted(set(y_true.astype(str)) | set(pd.Series(y_pred).astype(str)))
-    return {
-        "Config": name,
-        "Precision": float(precision_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
-        "Recall": float(recall_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
-        "F1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
-        "False_Positive_Rate": false_positive_rate(y_true, y_pred),
-        "Unknown_Detection_Rate": unknown_detection_rate(y_pred),
-        "Cross_Dataset_Robustness": cross_robustness_score(name),
-    }
+        return pd.DataFrame(
+            [{
+                "Dataset": "NF-UNSW-NB15",
+                "Role": "robustness_test",
+                "Status": "not_run",
+                "Note": "Run evaluate_cross_dataset.py to populate this robustness table.",
+            }]
+        )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    existing = payload.get("existing", {})
+    proposed = payload.get("proposed", {})
+    return pd.DataFrame(
+        [{
+            "Dataset": Path(str(payload.get("data_path", "NF-UNSW-NB15"))).name,
+            "Role": str(payload.get("role", "robustness_test_not_main_accuracy_headline")),
+            "Existing_Macro_F1": float(existing.get("macro_f1", 0.0)),
+            "Proposed_Macro_F1": float(proposed.get("macro_f1", 0.0)),
+            "Open_Set_Macro_F1_With_UNKNOWN": float(proposed.get("open_set_macro_f1_with_unknown", payload.get("open_set_macro_f1_with_unknown", 0.0))),
+            "Proposed_Rejection_Rate": float(proposed.get("rejection_rate", 0.0)),
+            "Unknown_Attack_Detection_Rate": float(proposed.get("unknown_attack_detection_rate", 0.0)),
+        }]
+    )
 
 
 def markdown_table(frame: pd.DataFrame) -> str:
@@ -182,30 +120,118 @@ def markdown_table(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     args = parse_args()
-    tau = args.tau if args.tau is not None else read_tau(args.config_path)
     model = joblib.load(args.model_path)
     X, y = load_split(args.data_path, args.max_rows)
+    X_train, y_train = load_split(args.train_path)
     class_labels = [str(label) for label in getattr(model, "classes_", sorted(y.unique()))]
 
-    probabilities = model.predict_proba(model_input(model, X))
-    dnn_predictions = np.asarray([class_labels[int(np.argmax(row))] for row in probabilities])
-    context = build_context(model, args.train_path, class_labels)
+    X_ref, y_ref, X_val, y_val = validation_split(
+        X_train,
+        y_train,
+        validation_size=args.validation_size,
+        random_state=args.random_state,
+    )
+    context = build_context_from_split(model, X_ref, y_ref, class_labels)
 
-    dnn_rules = apply_rules(X, dnn_predictions, probabilities, class_labels, context)
-    dnn_confidence = apply_confidence_rejection(dnn_predictions, probabilities, tau)
-    full_system = apply_full_system(X, dnn_predictions, probabilities, class_labels, context, tau)
+    val_probabilities_raw = model.predict_proba(model_input(model, X_val))
+    temperature, validation_nll = fit_temperature(val_probabilities_raw, y_val, class_labels)
+    val_probabilities = apply_temperature(val_probabilities_raw, temperature)
+    val_dnn_predictions = class_predictions(val_probabilities, class_labels)
+    rule_params = tune_rule_fusion(X_val, y_val, val_dnn_predictions, val_probabilities, class_labels, context)
+    val_proposed = apply_rules_closed_set(X_val, val_dnn_predictions, val_probabilities, class_labels, context, rule_params)
+    tau_selection = (
+        tune_tau(y_val, val_proposed, val_probabilities, class_labels)
+        if args.tau is None
+        else None
+    )
+    tau = float(args.tau if args.tau is not None else (tau_selection.tau if tau_selection else 0.20))
+
+    raw_probabilities = model.predict_proba(model_input(model, X))
+    probabilities = apply_temperature(raw_probabilities, temperature)
+    dnn_predictions = class_predictions(probabilities, class_labels)
+    dnn_rules = apply_rules_closed_set(X, dnn_predictions, probabilities, class_labels, context, rule_params)
+    proposed_closed = dnn_rules.copy()
 
     table = pd.DataFrame(
         [
-            metric_row("A) DNN only", y, dnn_predictions),
-            metric_row("B) DNN + rules", y, dnn_rules),
-            metric_row("C) DNN + confidence", y, dnn_confidence),
-            metric_row("D) full system", y, full_system),
+            metric_row("DNN-only", y, dnn_predictions),
+            metric_row("DNN+rules (validation-tuned soft fusion)", y, dnn_rules),
+            metric_row("Proposed closed-set (calibrated + soft abstention flag)", y, proposed_closed),
         ]
     )
+
+    confidence = np.max(probabilities, axis=1)
+    dnn_correct = (dnn_predictions == y.to_numpy()).astype(int)
+    proposed_correct = (proposed_closed == y.to_numpy()).astype(int)
+    open_set_table = pd.DataFrame(
+        [
+            {
+                "System": "DNN-only",
+                "Tau": np.nan,
+                "Temperature": temperature,
+                "Unknown_Rejection_Rate": 0.0,
+                "Benign_Unknown_FPR": 0.0,
+                "Accepted_Coverage": 1.0,
+                "Accepted_Macro_F1": closed_set_metrics(y, dnn_predictions)["macro_f1"],
+                "ECE": expected_calibration_error(confidence, dnn_correct, bins=10),
+            },
+            {
+                "System": "Proposed abstention flag",
+                "Tau": tau,
+                "Temperature": temperature,
+                **{
+                    "Unknown_Rejection_Rate": abstention_metrics(y, proposed_closed, probabilities, tau)["unknown_rejection_rate"],
+                    "Benign_Unknown_FPR": abstention_metrics(y, proposed_closed, probabilities, tau)["benign_unknown_false_positive_rate"],
+                    "Accepted_Coverage": abstention_metrics(y, proposed_closed, probabilities, tau)["accepted_coverage"],
+                    "Accepted_Macro_F1": abstention_metrics(y, proposed_closed, probabilities, tau)["accepted_macro_f1"],
+                },
+                "ECE": expected_calibration_error(confidence, proposed_correct, bins=10),
+            },
+        ]
+    )
+
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     table.to_csv(args.output_path, index=False)
+    open_set_table.to_csv(args.open_set_output_path, index=False)
+    table_c = cross_dataset_table()
+    table_c.to_csv(args.cross_dataset_output_path, index=False)
+
+    protocol = {
+        "validation": {
+            "train_path": str(args.train_path),
+            "reference_rows_for_rules": int(len(X_ref)),
+            "validation_rows_for_tuning": int(len(X_val)),
+            "validation_size": args.validation_size,
+            "random_state": args.random_state,
+        },
+        "temperature_scaling": {
+            "temperature": temperature,
+            "validation_nll": validation_nll,
+        },
+        "tau_selection": (
+            json_ready_dataclass(tau_selection)
+            if tau_selection is not None
+            else {"tau": tau, "source": "command_line"}
+        ),
+        "rule_fusion": json_ready_dataclass(rule_params),
+        "outputs": {
+            "table_a_closed_set": str(args.output_path),
+            "table_b_open_set_abstention": str(args.open_set_output_path),
+            "table_c_cross_dataset": str(args.cross_dataset_output_path),
+        },
+        "fairness_note": (
+            "Table A keeps all systems in the same closed-set label space. UNKNOWN is reported only as "
+            "an abstention/review metric in Table B."
+        ),
+    }
+    args.protocol_output_path.write_text(json.dumps(protocol, indent=2), encoding="utf-8")
+
+    print("\nTable A: closed-set comparison")
     print(markdown_table(table))
+    print("\nTable B: UNKNOWN abstention and calibration")
+    print(markdown_table(open_set_table))
+    print("\nTable C: cross-dataset robustness")
+    print(markdown_table(table_c))
 
 
 if __name__ == "__main__":

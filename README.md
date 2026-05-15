@@ -109,25 +109,25 @@ pip-audit -r requirements.txt
 
 ## Cross-dataset generalization (NF-UNSW-NB15)
 
-Cross-dataset evaluation is provided by `evaluate_cross_dataset.py`. The script loads the trained model from `models/ns_nids_model.pkl`, discovers the NF-UNSW-NB15 NetFlow download from the UQ NIDS dataset page when `--data_path` is absent, aligns columns to the NF-ToN-IoT-V2 feature schema, and saves per-class F1, macro-F1, and confusion-matrix output to `results/cross_dataset_results.json`.
+Cross-dataset evaluation is provided by `evaluate_cross_dataset.py`. The script loads the trained model from `models/ns_nids_model.pkl`, discovers the NF-UNSW-NB15 NetFlow download from the UQ NIDS dataset page when `--data_path` is absent, aligns columns to the NF-ToN-IoT-V2 feature schema, and saves robustness metrics to `results/cross_dataset_results.json`.
 
 ```bash
 venv\Scripts\python evaluate_cross_dataset.py --model_path models\ns_nids_model.pkl --data_path data\NF-UNSW-NB15-v3.csv
 ```
 
-Latest local smoke run: `20,000` NF-UNSW-NB15-v3 rows, macro-F1 `0.0860`. The low transfer score is intentional evidence for the generalization gap and should be reported honestly unless the training protocol is extended with domain adaptation or feature recalibration.
+Cross-dataset numbers are a robustness test, not the main in-domain accuracy headline. The script reports known-label closed-set macro-F1 separately from open-set `UNKNOWN` abstention metrics so an abstaining proposed system is not compared unfairly against a non-abstaining baseline.
 
 ## Unknown-traffic handling
 
-### Unknown-attack rejection (confidence thresholding)
+### UNKNOWN abstention (confidence thresholding)
 
-The backend now computes softmax confidence and entropy before symbolic rule fusion. If `max_prob < tau`, the final label is `UNKNOWN`, the symbolic rule layer is skipped for that flow, and the batch rejection rate is logged. The default threshold is configured in `config.yaml`:
+The backend computes softmax confidence and entropy before symbolic rule fusion. If calibrated `max_prob < tau`, the flow is flagged for `UNKNOWN` review, but the closed-set label is retained for the main DNN-only vs DNN+rules vs proposed comparison. This keeps abstention separate from ordinary classification accuracy.
 
 ```yaml
-unknown_confidence_threshold: 0.65
+unknown_confidence_threshold: 0.35
 ```
 
-The same threshold is used by `ablation_study.py` and `calibration_analysis.py` unless `--tau` is provided.
+For publication scripts, `tau` is tuned on a validation split carved from `data/train_processed.csv` using the grid `0.20, 0.25, ..., 0.80`. The held-out test split is used only after temperature, tau, and soft rule-fusion parameters are selected.
 
 ## Ablation study results
 
@@ -137,14 +137,14 @@ Run:
 venv\Scripts\python ablation_study.py --model_path models\ns_nids_model.pkl --data_path data\test_processed.csv
 ```
 
-| Config | Precision | Recall | F1 |
-| --- | ---: | ---: | ---: |
-| A) DNN only | 0.9232 | 0.9222 | 0.9215 |
-| B) DNN + rules | 0.9234 | 0.9224 | 0.9217 |
-| C) DNN + confidence | 0.8383 | 0.7615 | 0.7957 |
-| D) full system | 0.8383 | 0.7615 | 0.7957 |
+This writes the publication tables:
 
-The CSV table is saved to `results/ablation_table.csv`.
+- Table A closed-set comparison: `results/ablation_table.csv`
+- Table B UNKNOWN abstention and calibration: `results/open_set_abstention_table.csv`
+- Table C cross-dataset robustness: `results/cross_dataset_table.csv`
+- Validation-selected protocol details: `results/publication_reporting_protocol.json`
+
+Do not compare raw F1 for a proposed system that is allowed to output `UNKNOWN` against a baseline that is not. Table A keeps every system in the same closed-set label space; Table B reports rejection rate, benign UNKNOWN false-positive rate, accepted coverage, accepted macro-F1, and ECE.
 
 ## Calibration analysis
 
@@ -154,7 +154,7 @@ Run:
 venv\Scripts\python calibration_analysis.py --model_path models\ns_nids_model.pkl --data_path data\test_processed.csv
 ```
 
-The analysis computes 10-bin Expected Calibration Error (ECE) and writes a reliability diagram to `results/calibration_curve.png`. Latest local run: DNN-only ECE `0.0035`; proposed system ECE `0.0541`. The proposed ECE is higher because low-confidence rejection changes correctness without recalibrating the probability surface; this is useful paper evidence and a clear target for temperature scaling or conformal calibration.
+The analysis fits temperature scaling on the validation split, applies calibrated probabilities to the test split, computes 10-bin Expected Calibration Error (ECE), and writes a reliability diagram to `results/calibration_curve.png`. The JSON output records the selected temperature, tuned tau, soft-fusion parameters, closed-set ECE, and separate abstention metrics.
 
 ## Citation
 

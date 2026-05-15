@@ -162,15 +162,21 @@ def load_labels(frame: pd.DataFrame, model_classes: list[str]) -> pd.Series:
     raise ValueError("External dataset must contain Attack, Label, or label.")
 
 
-def unknown_rejection_predictions(model: Any, model_input: pd.DataFrame | np.ndarray, class_labels: list[str], tau: float) -> tuple[np.ndarray, np.ndarray]:
+def unknown_rejection_predictions(
+    model: Any,
+    model_input: pd.DataFrame | np.ndarray,
+    class_labels: list[str],
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not hasattr(model, "predict_proba"):
         predictions = np.asarray([str(label) for label in model.predict(model_input)])
-        return predictions, np.ones(len(predictions), dtype=float)
+        return predictions, predictions.copy(), np.ones(len(predictions), dtype=float)
     probabilities = model.predict_proba(model_input)
     confidence = np.max(probabilities, axis=1)
-    predictions = np.asarray([str(class_labels[int(np.argmax(row))]) for row in probabilities], dtype=object)
-    predictions[confidence < tau] = UNKNOWN_LABEL
-    return predictions.astype(str), confidence
+    closed_predictions = np.asarray([str(class_labels[int(np.argmax(row))]) for row in probabilities], dtype=object)
+    abstention_predictions = closed_predictions.copy()
+    abstention_predictions[confidence < tau] = UNKNOWN_LABEL
+    return closed_predictions.astype(str), abstention_predictions.astype(str), confidence
 
 
 def binary_false_positive_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
@@ -186,6 +192,13 @@ def unknown_detection_rate(y_true: pd.Series, y_pred: np.ndarray) -> float:
     if not true_unknown.any():
         return 0.0
     return float(np.mean(np.asarray(y_pred).astype(str)[true_unknown] == UNKNOWN_LABEL))
+
+
+def unknown_false_positive_rate_on_benign(y_true: pd.Series, y_pred: np.ndarray) -> float:
+    true_benign = y_true.astype(str).str.lower().isin({"benign", "normal"}).to_numpy()
+    if not true_benign.any():
+        return 0.0
+    return float(np.mean(np.asarray(y_pred).astype(str)[true_benign] == UNKNOWN_LABEL))
 
 
 def main() -> None:
@@ -204,49 +217,73 @@ def main() -> None:
 
     model_input = X if getattr(model, "feature_names_in_", None) is not None else X.to_numpy()
     existing_pred = np.asarray([str(label) for label in model.predict(model_input)])
-    proposed_pred, confidence = unknown_rejection_predictions(model, model_input, model_classes, args.tau)
-    labels = sorted(set(y_true.astype(str)) | set(existing_pred.astype(str)) | set(proposed_pred.astype(str)) | set(model_classes) | {UNKNOWN_LABEL})
-    existing_report = classification_report(y_true, existing_pred, labels=labels, output_dict=True, zero_division=0)
-    proposed_report = classification_report(y_true, proposed_pred, labels=labels, output_dict=True, zero_division=0)
-    matrix = confusion_matrix(y_true, proposed_pred, labels=labels)
+    proposed_closed_pred, proposed_abstention_pred, confidence = unknown_rejection_predictions(model, model_input, model_classes, args.tau)
+    known_mask = ~y_true.astype(str).eq(UNKNOWN_LABEL).to_numpy()
+    open_labels = sorted(set(y_true.astype(str)) | set(existing_pred.astype(str)) | set(proposed_abstention_pred.astype(str)) | set(model_classes) | {UNKNOWN_LABEL})
+    closed_labels = sorted((set(y_true.astype(str)[known_mask]) | set(existing_pred.astype(str)) | set(proposed_closed_pred.astype(str)) | set(model_classes)) - {UNKNOWN_LABEL})
+    existing_report = classification_report(
+        y_true[known_mask],
+        existing_pred[known_mask],
+        labels=closed_labels,
+        output_dict=True,
+        zero_division=0,
+    )
+    proposed_closed_report = classification_report(
+        y_true[known_mask],
+        proposed_closed_pred[known_mask],
+        labels=closed_labels,
+        output_dict=True,
+        zero_division=0,
+    )
+    proposed_open_report = classification_report(y_true, proposed_abstention_pred, labels=open_labels, output_dict=True, zero_division=0)
+    matrix = confusion_matrix(y_true, proposed_abstention_pred, labels=open_labels)
     per_class_f1 = {
-        label: float(proposed_report.get(label, {}).get("f1-score", 0.0))
-        for label in labels
+        label: float(proposed_open_report.get(label, {}).get("f1-score", 0.0))
+        for label in open_labels
     }
 
     results = {
         "model_path": args.model_path,
         "data_path": data_path,
         "download_source": args.download_url,
+        "role": "cross_dataset_robustness_test_not_main_accuracy_headline",
+        "fairness_note": "Closed-set scores are computed on rows whose mapped labels exist in the in-domain label space; UNKNOWN abstention is reported separately.",
         "tau": args.tau,
         "rows": int(len(X)),
+        "known_label_rows": int(known_mask.sum()),
+        "unknown_label_rows": int((~known_mask).sum()),
         "feature_alignment": {
             "expected_features": len(columns),
             "missing_filled_with_zero": missing,
             "extra_columns_dropped": extra,
         },
-        "labels": labels,
+        "labels": open_labels,
+        "closed_set_labels": closed_labels,
         "per_class_f1": per_class_f1,
-        "macro_f1": float(f1_score(y_true, proposed_pred, labels=labels, average="macro", zero_division=0)),
-        "classification_report": proposed_report,
+        "macro_f1": float(f1_score(y_true[known_mask], proposed_closed_pred[known_mask], labels=closed_labels, average="macro", zero_division=0)),
+        "open_set_macro_f1_with_unknown": float(f1_score(y_true, proposed_abstention_pred, labels=open_labels, average="macro", zero_division=0)),
+        "classification_report": proposed_open_report,
         "existing": {
             "accuracy": float(existing_report.get("accuracy", 0.0)),
-            "macro_f1": float(f1_score(y_true, existing_pred, labels=labels, average="macro", zero_division=0)),
+            "macro_f1": float(f1_score(y_true[known_mask], existing_pred[known_mask], labels=closed_labels, average="macro", zero_division=0)),
+            "open_set_macro_f1_with_unknown": float(f1_score(y_true, existing_pred, labels=open_labels, average="macro", zero_division=0)),
             "false_positive_rate": binary_false_positive_rate(y_true, existing_pred),
             "unknown_attack_detection_rate": unknown_detection_rate(y_true, existing_pred),
             "classification_report": existing_report,
         },
         "proposed": {
-            "accuracy": float(proposed_report.get("accuracy", 0.0)),
-            "macro_f1": float(f1_score(y_true, proposed_pred, labels=labels, average="macro", zero_division=0)),
-            "false_positive_rate": binary_false_positive_rate(y_true, proposed_pred),
-            "unknown_attack_detection_rate": unknown_detection_rate(y_true, proposed_pred),
+            "accuracy": float(proposed_closed_report.get("accuracy", 0.0)),
+            "macro_f1": float(f1_score(y_true[known_mask], proposed_closed_pred[known_mask], labels=closed_labels, average="macro", zero_division=0)),
+            "open_set_macro_f1_with_unknown": float(f1_score(y_true, proposed_abstention_pred, labels=open_labels, average="macro", zero_division=0)),
+            "false_positive_rate": binary_false_positive_rate(y_true, proposed_closed_pred),
+            "unknown_false_positive_rate_on_benign": unknown_false_positive_rate_on_benign(y_true, proposed_abstention_pred),
+            "unknown_attack_detection_rate": unknown_detection_rate(y_true, proposed_abstention_pred),
             "mean_confidence": float(np.mean(confidence)),
-            "rejection_rate": float(np.mean(proposed_pred == UNKNOWN_LABEL)),
-            "classification_report": proposed_report,
+            "rejection_rate": float(np.mean(proposed_abstention_pred == UNKNOWN_LABEL)),
+            "classification_report": proposed_closed_report,
         },
         "confusion_matrix": {
-            "labels": labels,
+            "labels": open_labels,
             "matrix": matrix.tolist(),
         },
     }

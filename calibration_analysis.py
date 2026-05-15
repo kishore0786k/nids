@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
 
 import joblib
 import matplotlib
@@ -11,7 +10,20 @@ import numpy as np
 import pandas as pd
 from sklearn.calibration import calibration_curve
 
-from src.neuro_symbolic import apply_symbolic_rules_batch, build_symbolic_context
+from src.publication_protocol import (
+    abstention_metrics,
+    apply_rules_closed_set,
+    apply_temperature,
+    build_context_from_split,
+    class_predictions,
+    expected_calibration_error,
+    fit_temperature,
+    json_ready_dataclass,
+    model_input,
+    tune_rule_fusion,
+    tune_tau,
+    validation_split,
+)
 
 
 matplotlib.use("Agg")
@@ -25,7 +37,6 @@ DEFAULT_TRAIN_PATH = PROJECT_ROOT / "data" / "train_processed.csv"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "results" / "calibration_curve.png"
 DEFAULT_JSON_PATH = PROJECT_ROOT / "results" / "calibration_results.json"
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-UNKNOWN_LABEL = "UNKNOWN"
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,29 +48,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--json_path", type=Path, default=DEFAULT_JSON_PATH)
     parser.add_argument("--config_path", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--tau", type=float, default=None)
+    parser.add_argument("--validation_size", type=float, default=0.20)
+    parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument("--bins", type=int, default=10)
     parser.add_argument("--max_rows", type=int, default=None)
     return parser.parse_args()
-
-
-def read_tau(config_path: Path, default: float = 0.70) -> float:
-    if not config_path.exists():
-        return default
-    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line or ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        if key.strip() in {"unknown_confidence_threshold", "tau"}:
-            try:
-                return float(value.strip().strip("'\""))
-            except ValueError:
-                return default
-    return default
-
-
-def model_input(model: Any, frame: pd.DataFrame) -> pd.DataFrame | np.ndarray:
-    return frame if getattr(model, "feature_names_in_", None) is not None else frame.to_numpy()
 
 
 def load_split(path: Path, max_rows: int | None = None) -> tuple[pd.DataFrame, pd.Series]:
@@ -70,64 +63,6 @@ def load_split(path: Path, max_rows: int | None = None) -> tuple[pd.DataFrame, p
     return frame.drop(columns=[label_col]), frame[label_col].astype(str)
 
 
-def expected_calibration_error(confidence: np.ndarray, correct: np.ndarray, bins: int = 10) -> float:
-    edges = np.linspace(0.0, 1.0, bins + 1)
-    ece = 0.0
-    n = max(1, len(confidence))
-    for index in range(bins):
-        lower, upper = edges[index], edges[index + 1]
-        if index == bins - 1:
-            mask = (confidence >= lower) & (confidence <= upper)
-        else:
-            mask = (confidence >= lower) & (confidence < upper)
-        if not mask.any():
-            continue
-        ece += float(mask.sum() / n) * abs(float(correct[mask].mean()) - float(confidence[mask].mean()))
-    return ece
-
-
-def build_context(model: Any, train_path: Path, class_labels: list[str]) -> dict[str, Any]:
-    X_train, y_train = load_split(train_path)
-    probs = model.predict_proba(model_input(model, X_train))
-    base_predictions = [class_labels[int(np.argmax(row))] for row in probs]
-    return build_symbolic_context(
-        X_train,
-        reference_y=y_train.tolist(),
-        class_labels=class_labels,
-        predicted_probs=probs,
-        base_predictions=base_predictions,
-    )
-
-
-def proposed_predictions(
-    X: pd.DataFrame,
-    dnn_predictions: np.ndarray,
-    probabilities: np.ndarray,
-    class_labels: list[str],
-    context: dict[str, Any],
-    tau: float,
-) -> np.ndarray:
-    confidence = np.max(probabilities, axis=1)
-    accepted = confidence >= tau
-    final = dnn_predictions.astype(object).copy()
-    final[~accepted] = UNKNOWN_LABEL
-    if accepted.any():
-        rules_pred, _, _ = apply_symbolic_rules_batch(
-            X.loc[accepted].reset_index(drop=True),
-            dnn_predictions[accepted],
-            probabilities[accepted],
-            class_labels=class_labels,
-            rule_context=context,
-            fusion_mode="hard",
-            alpha=0.65,
-            beta=0.35,
-            confidence_threshold=0.55 + 0.30 * 0.65,
-            strong_rule_threshold=0.72 + 0.20 * 0.65,
-        )
-        final[accepted] = rules_pred
-    return final.astype(str)
-
-
 def curve_points(correct: np.ndarray, confidence: np.ndarray, bins: int) -> tuple[np.ndarray, np.ndarray]:
     prob_true, prob_pred = calibration_curve(correct.astype(int), confidence, n_bins=bins, strategy="uniform")
     return prob_pred, prob_true
@@ -135,16 +70,36 @@ def curve_points(correct: np.ndarray, confidence: np.ndarray, bins: int) -> tupl
 
 def main() -> None:
     args = parse_args()
-    tau = args.tau if args.tau is not None else read_tau(args.config_path)
     model = joblib.load(args.model_path)
     X, y = load_split(args.data_path, args.max_rows)
+    X_train, y_train = load_split(args.train_path)
     class_labels = [str(label) for label in getattr(model, "classes_", sorted(y.unique()))]
 
-    probabilities = model.predict_proba(model_input(model, X))
+    X_ref, y_ref, X_val, y_val = validation_split(
+        X_train,
+        y_train,
+        validation_size=args.validation_size,
+        random_state=args.random_state,
+    )
+    context = build_context_from_split(model, X_ref, y_ref, class_labels)
+    val_probabilities_raw = model.predict_proba(model_input(model, X_val))
+    temperature, validation_nll = fit_temperature(val_probabilities_raw, y_val, class_labels)
+    val_probabilities = apply_temperature(val_probabilities_raw, temperature)
+    val_dnn_predictions = class_predictions(val_probabilities, class_labels)
+    rule_params = tune_rule_fusion(X_val, y_val, val_dnn_predictions, val_probabilities, class_labels, context)
+    val_proposed = apply_rules_closed_set(X_val, val_dnn_predictions, val_probabilities, class_labels, context, rule_params)
+    tau_selection = (
+        tune_tau(y_val, val_proposed, val_probabilities, class_labels)
+        if args.tau is None
+        else None
+    )
+    tau = float(args.tau if args.tau is not None else (tau_selection.tau if tau_selection else 0.20))
+
+    probabilities_raw = model.predict_proba(model_input(model, X))
+    probabilities = apply_temperature(probabilities_raw, temperature)
     confidence = np.max(probabilities, axis=1)
-    dnn_predictions = np.asarray([class_labels[int(np.argmax(row))] for row in probabilities])
-    context = build_context(model, args.train_path, class_labels)
-    proposed = proposed_predictions(X, dnn_predictions, probabilities, class_labels, context, tau)
+    dnn_predictions = class_predictions(probabilities, class_labels)
+    proposed = apply_rules_closed_set(X, dnn_predictions, probabilities, class_labels, context, rule_params)
 
     dnn_correct = (dnn_predictions == y.to_numpy()).astype(int)
     proposed_correct = (proposed == y.to_numpy()).astype(int)
@@ -168,7 +123,16 @@ def main() -> None:
     results = {
         "model_path": str(args.model_path),
         "data_path": str(args.data_path),
+        "train_path": str(args.train_path),
         "tau": tau,
+        "temperature": temperature,
+        "validation_nll": validation_nll,
+        "tau_selection": (
+            json_ready_dataclass(tau_selection)
+            if tau_selection is not None
+            else {"tau": tau, "source": "command_line"}
+        ),
+        "rule_fusion": json_ready_dataclass(rule_params),
         "bins": args.bins,
         "dnn_only": {
             "ece": expected_calibration_error(confidence, dnn_correct, args.bins),
@@ -179,7 +143,9 @@ def main() -> None:
             "ece": expected_calibration_error(confidence, proposed_correct, args.bins),
             "mean_confidence": float(np.mean(confidence)),
             "accuracy": float(np.mean(proposed_correct)),
+            "abstention": abstention_metrics(y, proposed, probabilities, tau),
         },
+        "fairness_note": "Proposed reliability is computed from closed-set labels; UNKNOWN remains a separate abstention metric.",
         "plot": str(args.output_path),
     }
     args.json_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
