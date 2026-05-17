@@ -10,71 +10,81 @@
     ],
     "classification_report": {
         "Backdoor": {
-            "precision": 0.9993827160493827,
-            "recall": 0.996001230390649,
-            "f1-score": 0.9976891079956863,
-            "support": 3251.0
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 123.0
         },
         "Benign": {
-            "precision": 0.9271463119709794,
-            "recall": 0.9431119311193112,
-            "f1-score": 0.9350609756097561,
-            "support": 3252.0
+            "precision": 0.8695652173913043,
+            "recall": 0.6,
+            "f1-score": 0.7100591715976331,
+            "support": 100.0
         },
         "DoS/DDoS": {
-            "precision": 0.923923006416132,
-            "recall": 0.9298892988929889,
-            "f1-score": 0.926896551724138,
-            "support": 3252.0
+            "precision": 0.81,
+            "recall": 0.6864406779661016,
+            "f1-score": 0.7431192660550459,
+            "support": 118.0
         },
         "Injection": {
-            "precision": 0.9018895348837209,
-            "recall": 0.7632226322263223,
-            "f1-score": 0.826782145236509,
-            "support": 3252.0
+            "precision": 0.6439393939393939,
+            "recall": 0.7657657657657657,
+            "f1-score": 0.6995884773662552,
+            "support": 111.0
         },
         "Password": {
-            "precision": 0.8765611385419693,
-            "recall": 0.9280442804428044,
-            "f1-score": 0.9015683345780433,
-            "support": 3252.0
+            "precision": 0.7755102040816326,
+            "recall": 0.6909090909090909,
+            "f1-score": 0.7307692307692307,
+            "support": 110.0
         },
         "Scanning": {
-            "precision": 0.9761306532663316,
-            "recall": 0.955719557195572,
-            "f1-score": 0.9658172778123058,
-            "support": 3252.0
+            "precision": 0.7830188679245284,
+            "recall": 0.9651162790697675,
+            "f1-score": 0.8645833333333334,
+            "support": 86.0
         },
         "XSS/MITM": {
-            "precision": 0.8577041818692114,
-            "recall": 0.939729397293973,
-            "f1-score": 0.8968451944240645,
-            "support": 3252.0
+            "precision": 0.6311475409836066,
+            "recall": 0.7549019607843137,
+            "f1-score": 0.6875,
+            "support": 102.0
         },
-        "accuracy": 0.9222422352062558,
+        "accuracy": 0.78,
         "macro avg": {
-            "precision": 0.9232482204282467,
-            "recall": 0.9222454753659458,
-            "f1-score": 0.9215227981972147,
-            "support": 22763.0
+            "precision": 0.7875973177600665,
+            "recall": 0.7804476820707199,
+            "f1-score": 0.7765170684459283,
+            "support": 750.0
         },
         "weighted avg": {
-            "precision": 0.9232448757682449,
-            "recall": 0.9222422352062558,
-            "f1-score": 0.9215194521395862,
-            "support": 22763.0
+            "precision": 0.7920487849829602,
+            "recall": 0.78,
+            "f1-score": 0.7789494581242601,
+            "support": 750.0
         }
     },
     "existing": {
-        "accuracy": 0.9,
-        "precision_macro": 0.88,
-        "recall_macro": 0.87,
-        "f1_macro": 0.875
+        "accuracy": 0.544,
+        "precision_macro": 0.562485,
+        "recall_macro": 0.535382,
+        "f1_macro": 0.493213
     },
     "proposed": {
-        "accuracy": 0.9222422352062558,
-        "precision_macro": 0.9232482204282467,
-        "recall_macro": 0.9222454753659458,
-        "f1_macro": 0.9215227981972147
-    }
+        "accuracy": 0.78,
+        "precision_macro": 0.787597,
+        "recall_macro": 0.780448,
+        "f1_macro": 0.776517
+    },
+    "protocol": {
+        "window_size": 750,
+        "flow_index": 0,
+        "alpha": 0.65,
+        "beta": 0.35,
+        "fusion_mode": "hard",
+        "seed": 60,
+        "unknown_threshold": 0.35
+    },
+    "note": "Generated from backend.nids_engine live publication evaluation; baseline is the shallow legacy ExtraTrees model and proposed is calibrated neuro-symbolic fusion."
 }

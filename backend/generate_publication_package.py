@@ -49,6 +49,13 @@ def save_plot(name: str, fig) -> dict:
 
 def generate_figures(charts: dict) -> list[dict]:
     figures = []
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans",
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "legend.fontsize": 8,
+    })
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     x = [int(v) for v in charts["improvement_curve"]["labels"]]
@@ -93,7 +100,8 @@ def generate_figures(charts: dict) -> list[dict]:
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     roc = charts["roc_curve"]
-    ax.plot([p["x"] for p in roc["points"]], [p["y"] for p in roc["points"]], label=f"AUC={roc['auc']}")
+    ax.plot([p["x"] for p in roc["baseline"]["points"]], [p["y"] for p in roc["baseline"]["points"]], label=f"Baseline AUC={roc['baseline']['auc']}")
+    ax.plot([p["x"] for p in roc["proposed"]["points"]], [p["y"] for p in roc["proposed"]["points"]], label=f"Proposed AUC={roc['proposed']['auc']}")
     ax.plot([0, 1], [0, 1], "--", color="gray", label="Random baseline")
     ax.set_xlabel("False positive rate")
     ax.set_ylabel("True positive rate")
@@ -103,12 +111,75 @@ def generate_figures(charts: dict) -> list[dict]:
     figures.append({"id": "figure_05_roc_curve", **save_plot("figure_05_roc_curve", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
+    pr = charts["pr_curve"]
+    ax.plot([p["x"] for p in pr["baseline"]["points"]], [p["y"] for p in pr["baseline"]["points"]], label=f"Baseline AP={pr['baseline']['average_precision']}")
+    ax.plot([p["x"] for p in pr["proposed"]["points"]], [p["y"] for p in pr["proposed"]["points"]], label=f"Proposed AP={pr['proposed']['average_precision']}")
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_title("Micro-Average Precision-Recall Curve")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    figures.append({"id": "figure_06_precision_recall_curve", **save_plot("figure_06_precision_recall_curve", fig)})
+
+    fig, ax = plt.subplots(figsize=(6.3, 4.0))
     ax.bar(charts["detection_counts"]["labels"], charts["detection_counts"]["values"])
     ax.set_ylabel("Flow count")
     ax.set_title("Attack Detection and Containment Coverage")
     ax.grid(True, axis="y", alpha=0.25)
     ax.tick_params(axis="x", rotation=15)
-    figures.append({"id": "figure_06_detection_coverage", **save_plot("figure_06_detection_coverage", fig)})
+    figures.append({"id": "figure_07_detection_coverage", **save_plot("figure_07_detection_coverage", fig)})
+
+    fig, ax = plt.subplots(figsize=(6.3, 4.0))
+    gain = charts["attack_recall_gain"]
+    idx = np.arange(len(gain["labels"]))
+    width = 0.36
+    ax.bar(idx - width / 2, gain["baseline"], width, label="Baseline")
+    ax.bar(idx + width / 2, gain["proposed"], width, label="Proposed")
+    ax.set_xticks(idx)
+    ax.set_xticklabels(gain["labels"], rotation=25, ha="right")
+    ax.set_ylabel("Recall")
+    ax.set_title("Attack-Wise Recall Gain")
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.legend()
+    figures.append({"id": "figure_08_attack_recall_gain", **save_plot("figure_08_attack_recall_gain", fig)})
+
+    fig, ax = plt.subplots(figsize=(6.3, 4.0))
+    unknown = charts["unknown_attack_detection"]
+    ax.bar(unknown["labels"], unknown["values"], color=["#2d63b8", "#c94f3d"])
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Attack review rate")
+    ax.set_title("UNKNOWN Attack Detection")
+    ax.grid(True, axis="y", alpha=0.25)
+    figures.append({"id": "figure_09_unknown_attack_detection", **save_plot("figure_09_unknown_attack_detection", fig)})
+
+    fig, ax1 = plt.subplots(figsize=(6.3, 4.0))
+    latency = charts["latency_comparison"]
+    throughput = charts["throughput_comparison"]
+    x = np.arange(len(latency["labels"]))
+    ax1.bar(x - 0.18, latency["values"], 0.36, color="#c94f3d", label="Latency (ms)")
+    ax1.set_ylabel("Latency (ms)")
+    ax2 = ax1.twinx()
+    ax2.bar(x + 0.18, throughput["values"], 0.36, color="#0f8b8d", label="Throughput (flows/s)")
+    ax2.set_ylabel("Throughput (flows/s)")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(latency["labels"])
+    ax1.set_title("Detection Latency and Throughput")
+    ax1.grid(True, axis="y", alpha=0.25)
+    figures.append({"id": "figure_10_latency_throughput", **save_plot("figure_10_latency_throughput", fig)})
+
+    fig, ax = plt.subplots(figsize=(6.3, 4.0))
+    rules = charts["rule_trigger_analysis"]
+    idx = np.arange(len(rules["labels"]))
+    width = 0.36
+    ax.bar(idx - width / 2, rules["triggered"], width, label="Triggered")
+    ax.bar(idx + width / 2, rules["applied"], width, label="Applied")
+    ax.set_xticks(idx)
+    ax.set_xticklabels(rules["labels"], rotation=25, ha="right")
+    ax.set_ylabel("Flow count")
+    ax.set_title("Symbolic Rule Trigger Analysis")
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.legend()
+    figures.append({"id": "figure_11_rule_trigger_analysis", **save_plot("figure_11_rule_trigger_analysis", fig)})
 
     return figures
 
@@ -158,7 +229,7 @@ def write_tex_files(overview: dict, charts: dict, backend: dict, ablation: dict,
     )
 
     baseline = ablation["systems"][0]["metrics"]
-    neuro_symbolic = ablation["systems"][1]["metrics"]
+    neuro_symbolic = ablation["systems"][-1]["metrics"]
     (PAPER_GEN / "ablation_table.tex").write_text(
         "\\begin{tabular}{lrrrr}\n"
         "\\hline\n"

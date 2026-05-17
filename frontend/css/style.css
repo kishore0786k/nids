@@ -1,16 +1,16 @@
 :root {
-  --bg: #081116;
-  --ink: #eef5f7;
-  --muted: #9eb0b9;
-  --line: rgba(164, 190, 198, 0.22);
-  --panel: #0e1920;
-  --soft: #16252d;
+  --bg: #f5f7f9;
+  --ink: #172026;
+  --muted: #5f6f78;
+  --line: rgba(31, 45, 55, 0.16);
+  --panel: #ffffff;
+  --soft: #e9eef2;
   --teal: #0f8b8d;
   --blue: #3167d6;
   --coral: #d95f45;
   --green: #228b5b;
   --amber: #c98211;
-  --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  --shadow: 0 10px 30px rgba(22, 38, 50, 0.09);
 }
 
 * {
@@ -23,7 +23,7 @@ html {
 
 body {
   margin: 0;
-  background: linear-gradient(180deg, #0b161c 0%, var(--bg) 42%, #060d12 100%);
+  background: var(--bg);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
@@ -51,7 +51,7 @@ button {
   align-items: center;
   gap: 20px;
   padding: 14px 28px;
-  background: rgba(8, 17, 22, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(18px);
 }
@@ -71,7 +71,7 @@ button {
   place-items: center;
   border-radius: 8px;
   background: var(--ink);
-  color: var(--bg);
+  color: #ffffff;
   font-size: 13px;
   font-weight: 800;
 }
@@ -112,8 +112,8 @@ button {
 }
 
 .nav-button.active {
-  background: #e7f0f4;
-  color: #071016;
+  background: var(--ink);
+  color: #ffffff;
 }
 
 .nav-button:not(.active):hover,
@@ -131,12 +131,12 @@ button {
 .btn.primary {
   background: var(--teal);
   color: white;
-  box-shadow: 0 10px 24px rgba(15, 139, 141, 0.22);
+  box-shadow: none;
 }
 
 .btn.ghost {
   border-color: var(--line);
-  background: rgba(255,255,255,0.04);
+  background: #ffffff;
 }
 
 .run-status {
@@ -169,7 +169,7 @@ main {
   padding: 28px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(17, 35, 44, 0.98), rgba(8, 18, 26, 0.98));
+  background: #ffffff;
   box-shadow: var(--shadow);
 }
 
@@ -195,7 +195,7 @@ main {
   padding: 18px;
   border: 1px solid rgba(127, 212, 210, 0.25);
   border-radius: 8px;
-  background: rgba(127, 212, 210, 0.08);
+  background: #eef8f7;
 }
 
 .hero-verdict span {
@@ -367,7 +367,7 @@ main {
   padding: 19px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(13, 23, 32, 0.86);
+  background: #ffffff;
 }
 
 .metric-strip span,
@@ -463,7 +463,7 @@ main {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(238, 245, 247, 0.04);
+  background: #ffffff;
 }
 
 .summary-pill span {
@@ -499,7 +499,7 @@ main {
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(14, 25, 32, 0.94);
+  background: #ffffff;
   box-shadow: var(--shadow);
 }
 
@@ -539,9 +539,9 @@ main {
 
 .figure-canvas {
   height: 360px;
-  border: 1px solid rgba(164, 190, 198, 0.12);
+  border: 1px solid rgba(31, 45, 55, 0.10);
   border-radius: 8px;
-  background: #0a141a;
+  background: #ffffff;
 }
 
 .matrix-canvas {
@@ -571,7 +571,7 @@ main {
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(238, 245, 247, 0.035);
+  background: #ffffff;
 }
 
 .notes-grid h3 {
@@ -608,7 +608,7 @@ main {
 .novelty-list li {
   padding: 15px 0;
   border-top: 1px solid var(--line);
-  color: #34404a;
+  color: var(--muted);
   line-height: 1.5;
 }
 
@@ -639,7 +639,7 @@ code {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(13, 23, 32, 0.86);
+  background: #ffffff;
   color: var(--muted);
   font-size: 13px;
 }
@@ -668,7 +668,7 @@ code {
 }
 
 .feed-table td:nth-child(2) {
-  color: #dff9f8;
+  color: var(--teal);
   font-weight: 800;
 }
 
@@ -696,7 +696,7 @@ code {
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  background: rgba(10, 20, 28, 0.96);
+  background: #ffffff;
   font-size: 13px;
 }
 
@@ -813,20 +813,20 @@ code {
 }
 
 .warning-card {
-  background: #102027;
-  color: white;
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .warning-card p {
-  color: #c8d4d9;
+  color: var(--muted);
 }
 
 .warning-card.attack {
-  background: #321916;
+  background: #fff2ef;
 }
 
 .warning-card.unknown {
-  background: #20283c;
+  background: #eef3fb;
 }
 
 #playbook-list {
@@ -837,8 +837,8 @@ code {
 
 #playbook-list li {
   padding: 11px 0;
-  border-top: 1px solid rgba(255,255,255,0.18);
-  color: #eaf0f2;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
 }
 
 .evidence-grid {
@@ -852,7 +852,7 @@ code {
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255,255,255,0.03);
+  background: #ffffff;
 }
 
 .evidence-card span {

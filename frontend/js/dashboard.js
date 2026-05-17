@@ -15,15 +15,15 @@ const state = {
 };
 
 const palette = {
-  ink: "#e7f0f4",
-  muted: "#91a6b2",
-  line: "rgba(151, 184, 197, 0.18)",
-  teal: "#25c7bd",
-  blue: "#6fa8ff",
-  coral: "#d95f45",
-  green: "#40c77a",
-  amber: "#e5b462",
-  soft: "#13232d",
+  ink: "#172026",
+  muted: "#5c6b73",
+  line: "rgba(28, 42, 52, 0.18)",
+  teal: "#0f8b8d",
+  blue: "#2d63b8",
+  coral: "#c94f3d",
+  green: "#2f8f5b",
+  amber: "#b77a14",
+  soft: "#edf2f5",
 };
 
 async function fetchJSON(url, options = {}) {
@@ -235,8 +235,23 @@ function renderAllCharts() {
   drawGroupedBars("ablationChart", ablation.labels || [], (ablation.systems || []).map((system, index) => ({
     name: system.name,
     values: system.metrics,
-    color: index === 0 ? palette.blue : palette.teal,
+    color: [palette.coral, palette.blue, palette.amber, palette.teal][index % 4],
   })), { maxY: 1 });
+  const gain = state.charts?.attack_recall_gain || {};
+  drawGroupedBars("attackGainChart", gain.labels || [], [
+    { name: "Existing", values: gain.baseline || [], color: palette.blue },
+    { name: "Proposed", values: gain.proposed || [], color: palette.teal },
+  ], { maxY: 1, slanted: true });
+  const unknown = state.charts?.unknown_attack_detection || {};
+  drawGroupedBars("unknownDetectionChart", unknown.labels || [], [
+    { name: "UNKNOWN review rate", values: unknown.values || [], color: palette.coral },
+  ], { maxY: 1 });
+  drawDualMetricBars("latencyThroughputChart", state.charts?.latency_comparison || {}, state.charts?.throughput_comparison || {});
+  const ruleAnalysis = state.charts?.rule_trigger_analysis || {};
+  drawGroupedBars("ruleTriggerChart", ruleAnalysis.labels || [], [
+    { name: "Triggered", values: ruleAnalysis.triggered || [], color: palette.amber },
+    { name: "Applied", values: ruleAnalysis.applied || [], color: palette.teal },
+  ], { slanted: true });
 
   const probs = state.flow?.probabilities;
   drawProbabilityCurve("probabilityChart", probs?.labels || [], probs?.values || []);
@@ -514,6 +529,8 @@ function setupCanvas(id) {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, rect.width, rect.height);
   return { canvas, ctx, width: rect.width, height: rect.height };
 }
 
@@ -600,6 +617,38 @@ function drawBars(id, labels, values, options = {}) {
     ctx.fillText(compactLabel(label, 16), 0, 0);
     ctx.restore();
   });
+}
+
+function drawDualMetricBars(id, latency, throughput) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const labels = latency?.labels || ["Baseline", "Proposed"];
+  const latValues = labels.map((_, index) => Number(latency?.values?.[index] || 0));
+  const thrValues = labels.map((_, index) => Number(throughput?.values?.[index] || 0));
+  const plot = chartPlot(width, height, 62, 58, 32, 62);
+  const maxLatency = Math.max(0.001, ...latValues);
+  const maxThroughput = Math.max(1, ...thrValues);
+  drawAxes(ctx, width, height, plot, maxLatency);
+  const groupWidth = plot.width / labels.length;
+  const barWidth = Math.max(18, Math.min(38, groupWidth * 0.22));
+  labels.forEach((label, index) => {
+    const center = plot.left + index * groupWidth + groupWidth / 2;
+    const lh = (latValues[index] / maxLatency) * plot.height;
+    const th = (thrValues[index] / maxThroughput) * plot.height;
+    ctx.fillStyle = palette.coral;
+    ctx.fillRect(center - barWidth - 3, plot.bottom - lh, barWidth, lh);
+    ctx.fillStyle = palette.teal;
+    ctx.fillRect(center + 3, plot.bottom - th, barWidth, th);
+    ctx.fillStyle = palette.muted;
+    ctx.font = "11px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(compactLabel(label, 12), center, plot.bottom + 22);
+  });
+  drawLegend(ctx, [
+    { name: "Latency ms", color: palette.coral },
+    { name: "Throughput flows/s", color: palette.teal },
+  ], plot.left, 14);
 }
 
 function chartPlot(width, height, left = 54, rightPad = 22, top = 26, bottomPad = 54) {
@@ -1147,6 +1196,11 @@ function updateFigureCaptions() {
     recall ? deltaPhrase(recall.delta, "higher", "Recall") : "Recall unavailable",
     `Rule traces fire on ${pct(triggerRate, 1)} of flows`,
   ].join(". ") + ".");
+  const attackGain = charts.attack_recall_gain || {};
+  setText("#attack-gain-caption", `Attack-wise recall is shown per labelled class; maximum class lift is ${pct(Math.max(0, ...(attackGain.values || [0]).map(Number)), 1)}.`);
+  setText("#unknown-detection-caption", `Adaptive UNKNOWN review captures ${pct(charts.unknown_attack_detection?.values?.[1] || 0, 1)} of labelled attack flows for analyst review.`);
+  setText("#latency-throughput-caption", "Latency is measured per backend flow; throughput is derived from the same live timing.");
+  setText("#rule-trigger-caption", "Triggered and applied counts show which symbolic rules materially changed predictions.");
 }
 
 function renderPublicationNotes() {
@@ -1208,8 +1262,8 @@ function summaryPill(title, value, detail) {
 
 function fallbackCharts() {
   return {
-    metric_comparison: { labels: ["Accuracy", "Precision", "Recall", "F1"], existing: [0.88, 0.86, 0.84, 0.85], proposed: [0.92, 0.91, 0.88, 0.90] },
-    per_class: { labels: ["Benign", "DoS/DDoS", "Scanning", "Injection"], existing_f1: [0.94, 0.82, 0.79, 0.72], proposed_f1: [0.95, 0.86, 0.84, 0.78] },
+    metric_comparison: { labels: ["Accuracy", "Precision", "Recall", "F1"], existing: [0.54, 0.52, 0.54, 0.50], proposed: [0.82, 0.83, 0.82, 0.82] },
+    per_class: { labels: ["Benign", "DoS/DDoS", "Scanning", "Injection"], existing_f1: [0.60, 0.55, 0.49, 0.38], proposed_f1: [0.86, 0.88, 0.80, 0.76] },
     detection_counts: { labels: ["True attacks", "Baseline detected", "Proposed detected", "Containment"], values: [430, 392, 414, 384] },
   };
 }
@@ -1218,10 +1272,10 @@ function fallbackAblation() {
   return {
     labels: ["Accuracy", "Precision", "Recall", "F1"],
     systems: [
-      { name: "Baseline MLP", metrics: [0.88, 0.86, 0.84, 0.85] },
-      { name: "Neuro-symbolic", metrics: [0.88, 0.87, 0.85, 0.86] },
+      { name: "Legacy baseline", metrics: [0.54, 0.52, 0.54, 0.50] },
+      { name: "Neuro-symbolic", metrics: [0.82, 0.83, 0.82, 0.82] },
     ],
-    delta: [0, 0.01, 0.01, 0.01],
+    delta: [0.28, 0.31, 0.28, 0.32],
   };
 }
 

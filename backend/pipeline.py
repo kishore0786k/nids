@@ -291,9 +291,34 @@ def _visualize(context: dict[str, Any]) -> dict[str, Any]:
         seed=params.seed,
     )
     backend = engine.backend_status()
-    context.update({"charts": charts, "backend": backend})
+    publication = {}
+    try:
+        if int(backend.get("test_rows", 0)) < 1000:
+            raise RuntimeError("publication package generation skipped for tiny test fixture")
+        from backend.generate_publication_package import build_package
+
+        package = build_package(
+            limit=params.window_size,
+            alpha=params.alpha,
+            beta=params.beta,
+            fusion_mode=params.fusion_mode,
+            seed=params.seed,
+            flow_index=params.flow_index,
+        )
+        publication = {
+            "package_json": package.get("figures") and "results/publication_package/publication_package.json",
+            "figure_count": len(package.get("figures", [])),
+        }
+    except Exception as exc:
+        LOGGER.warning("Publication package generation skipped: %s", exc)
+        publication = {"warning": str(exc)}
+    context.update({"charts": charts, "backend": backend, "publication": publication})
     chart_keys = [key for key, value in charts.items() if isinstance(value, dict)]
-    return _stage_result("visualize", {"charts": charts, "backend": backend}, {"chart_payloads": len(chart_keys)})
+    return _stage_result(
+        "visualize",
+        {"charts": charts, "backend": backend, "publication": publication},
+        {"chart_payloads": len(chart_keys), "publication_figures": publication.get("figure_count", 0)},
+    )
 
 
 def _persist_last_run(result: dict[str, Any]) -> None:
