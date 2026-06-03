@@ -35,6 +35,51 @@ const state = {
 };
 state.params = experimentToParams(state.experiment);
 
+const EXPERIMENT_KEYS = Object.freeze(["window", "flow", "alpha", "beta", "fusion", "seed"]);
+
+const ExperimentContext = {
+  keys: EXPERIMENT_KEYS,
+  subscribers: new Set(),
+  current() {
+    return { ...state.experiment };
+  },
+  pending() {
+    return { ...state.pendingExperiment };
+  },
+  preview(experiment) {
+    state.pendingExperiment = sanitizeExperiment(experiment);
+    return this.pending();
+  },
+  apply(experiment, meta = {}) {
+    const next = sanitizeExperiment(experiment);
+    state.experiment = next;
+    state.pendingExperiment = { ...next };
+    state.params = experimentToParams(next);
+    this.subscribers.forEach((listener) => listener(this.current(), meta));
+    return this.current();
+  },
+  fromBackend(context = {}, parameters = {}) {
+    return this.apply(contextFromBackend(context, parameters), { source: "backend" });
+  },
+  params(extra = null) {
+    if (!extra) return { ...state.params };
+    return experimentToParams(paramsToExperiment({ ...state.params, ...extra }));
+  },
+  query(extra = {}) {
+    const params = paramsToExperiment({ ...state.params, ...extra });
+    const query = new URLSearchParams();
+    EXPERIMENT_KEYS.forEach((key) => query.set(key, params[key]));
+    return query.toString();
+  },
+  subscribe(listener) {
+    if (typeof listener !== "function") return () => {};
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
+  },
+};
+
+window.ExperimentContext = ExperimentContext;
+
 const palette = {
   ink: "#172026",
   muted: "#5c6b73",
@@ -144,13 +189,14 @@ function paramsToExperiment(params = {}) {
 }
 
 function readExperimentControls() {
+  const experiment = ExperimentContext.current();
   return sanitizeExperiment({
-    window: numberFromControl("#analysis-window-size", state.experiment.window, 50, 25000),
-    flow: $("#analysis-flow-index")?.value ?? $("#flow-index")?.value ?? state.experiment.flow,
-    alpha: numberFromControl("#analysis-alpha", state.experiment.alpha, 0, 1),
-    beta: numberFromControl("#analysis-beta", state.experiment.beta, 0, 1),
-    fusion: $("#analysis-fusion-mode")?.value || state.experiment.fusion || "hard",
-    seed: numberFromControl("#analysis-seed", state.experiment.seed, 0, 2147483647),
+    window: numberFromControl("#analysis-window-size", experiment.window, 50, 25000),
+    flow: $("#analysis-flow-index")?.value ?? $("#flow-index")?.value ?? experiment.flow,
+    alpha: numberFromControl("#analysis-alpha", experiment.alpha, 0, 1),
+    beta: numberFromControl("#analysis-beta", experiment.beta, 0, 1),
+    fusion: $("#analysis-fusion-mode")?.value || experiment.fusion || "hard",
+    seed: numberFromControl("#analysis-seed", experiment.seed, 0, 2147483647),
   });
 }
 
@@ -159,9 +205,7 @@ function readAnalysisControls() {
 }
 
 function commitExperiment(experiment) {
-  state.experiment = sanitizeExperiment(experiment);
-  state.pendingExperiment = { ...state.experiment };
-  state.params = experimentToParams(state.experiment);
+  return ExperimentContext.apply(experiment, { source: "apply" });
 }
 
 function contextFromBackend(context = {}, parameters = {}) {
@@ -176,7 +220,7 @@ function contextFromBackend(context = {}, parameters = {}) {
 }
 
 function syncAnalysisControls() {
-  const params = state.experiment;
+  const params = ExperimentContext.current();
   const values = {
     "#analysis-window-size": params.window,
     "#analysis-flow-index": params.flow,
@@ -194,22 +238,19 @@ function syncAnalysisControls() {
   setText("#analysis-param-summary", contextSummary(params));
 }
 
-function contextSummary(experiment, suffix = "") {
+function contextSummary(experiment = ExperimentContext.current(), suffix = "") {
   const params = sanitizeExperiment(experiment);
   const hash = state.payload?.parameter_hash ? ` / hash ${state.payload.parameter_hash}` : "";
   return `window ${params.window.toLocaleString()} / flow ${params.flow} / alpha ${fmt(params.alpha, 2)} / beta ${fmt(params.beta, 2)} / ${params.fusion} / seed ${params.seed}${hash}${suffix}`;
 }
 
 function previewAnalysisControls() {
-  state.pendingExperiment = readExperimentControls();
-  setText("#analysis-param-summary", contextSummary(state.pendingExperiment, " / pending Apply"));
+  ExperimentContext.preview(readExperimentControls());
+  setText("#analysis-param-summary", contextSummary(ExperimentContext.pending(), " / pending Apply"));
 }
 
 function paramsQuery(extra = {}) {
-  const params = paramsToExperiment(extra);
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => query.set(key, value));
-  return query.toString();
+  return ExperimentContext.query(extra);
 }
 
 function scheduleDashboardRefresh(delay = 260) {
@@ -265,7 +306,7 @@ async function loadDashboard() {
   syncAnalysisControls();
   const token = state.requestToken + 1;
   state.requestToken = token;
-  const query = paramsQuery();
+  const query = ExperimentContext.query();
   setText("#run-all-feedback", "Applying context");
   try {
     const payload = await fetchJSON(`/api/experiment?${query}`);
@@ -284,7 +325,7 @@ async function loadDashboard() {
     state.status = payload.status || null;
     state.flow = payload.flow || null;
     state.maxFlowIndex = Number(state.status?.max_index ?? state.overview?.max_index ?? state.maxFlowIndex);
-    commitExperiment(contextFromBackend(payload.context, payload.parameters));
+    ExperimentContext.fromBackend(payload.context, payload.parameters);
     state.previousHash = nextHash;
     syncAnalysisControls();
     renderDashboard();
@@ -292,13 +333,13 @@ async function loadDashboard() {
   } catch (error) {
     console.error(error);
     setText("#run-all-feedback", "Refresh failed");
-    setText("#analysis-param-summary", `${contextSummary(state.experiment)} / backend unavailable`);
+    setText("#analysis-param-summary", `${contextSummary(ExperimentContext.current())} / backend unavailable`);
   }
 }
 
 async function loadFlow(index) {
   const flowLimit = Math.max(0, Number(state.maxFlowIndex || 0));
-  commitExperiment({ ...state.experiment, flow: Math.max(0, Math.min(flowLimit, Math.floor(Number(index) || 0))) });
+  commitExperiment({ ...ExperimentContext.current(), flow: Math.max(0, Math.min(flowLimit, Math.floor(Number(index) || 0))) });
   syncAnalysisControls();
   await loadDashboard();
   return;
@@ -331,7 +372,7 @@ async function runAll() {
     const job = await fetchJSON("/api/run-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.experiment),
+      body: JSON.stringify(ExperimentContext.current()),
     });
     const jobId = job.job_id;
     if (!jobId) {
@@ -597,7 +638,7 @@ async function exportCharts() {
         exported_from: window.location.href,
         export_scale: 3,
         figure_source: "current live backend payload",
-        context: state.experiment,
+        context: ExperimentContext.current(),
         parameter_hash: state.payload?.parameter_hash || null,
       },
       charts: canvases.map(([name, canvas]) => ({ name, image: highResCanvasDataURL(canvas, 3) })),
@@ -1647,7 +1688,10 @@ function dynamicStageDetail(stage) {
   const action = flow.defense?.action || "No defense action loaded yet.";
   const applied = (flow.fired_rules || []).filter((rule) => rule.rule_id && rule.rule_id !== "NONE" && rule.applied).length;
   const triggered = analytics.rule_trigger_count ?? (flow.fired_rules || []).filter((rule) => rule.rule_id && rule.rule_id !== "NONE").length;
-  if (stage.title === "Input Flow") return `Flow #${state.experiment.flow}, window ${state.experiment.window}, seed ${state.experiment.seed}.`;
+  if (stage.title === "Input Flow") {
+    const experiment = ExperimentContext.current();
+    return `Flow #${experiment.flow}, window ${experiment.window}, seed ${experiment.seed}.`;
+  }
   if (stage.title === "Neural Inference") return `Neural label ${flow.neural_pred || "--"} at confidence ${fmt(flow.confidence, 3)}.`;
   if (stage.title === "Unknown Rejection") return `Entropy ${fmt(flow.entropy, 3)}, margin ${fmt(flow.margin, 3)}, tau ${fmt(flow.unknown_threshold, 2)}.`;
   if (stage.title === "Symbolic Rules") return `${triggered} rules triggered in-window; ${applied} applied on this flow.`;
