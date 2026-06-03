@@ -12,6 +12,16 @@ const state = {
   maxFlowIndex: 20000,
   activeStage: 0,
   three: null,
+  params: {
+    window_size: 750,
+    flow_index: 0,
+    alpha: 0.65,
+    beta: 0.35,
+    fusion_mode: "hard",
+    seed: 60,
+  },
+  refreshTimer: null,
+  requestToken: 0,
 };
 
 const palette = {
@@ -19,10 +29,12 @@ const palette = {
   muted: "#5c6b73",
   line: "rgba(28, 42, 52, 0.18)",
   teal: "#0f8b8d",
-  blue: "#2d63b8",
+  blue: "#315f9d",
   coral: "#c94f3d",
   green: "#2f8f5b",
   amber: "#b77a14",
+  baseline: "#687989",
+  proposed: "#087f8c",
   soft: "#edf2f5",
 };
 
@@ -77,10 +89,79 @@ function activateSection(target) {
   }
 }
 
+function numberFromControl(selector, fallback, minimum, maximum) {
+  const raw = Number($(selector)?.value ?? fallback);
+  let value = Number.isFinite(raw) ? raw : fallback;
+  if (Number.isFinite(minimum)) value = Math.max(minimum, value);
+  if (Number.isFinite(maximum)) value = Math.min(maximum, value);
+  return value;
+}
+
+function readAnalysisControls() {
+  const flowLimit = Math.max(0, Number(state.maxFlowIndex || 0));
+  const flowInput = $("#analysis-flow-index")?.value ?? $("#flow-index")?.value ?? state.params.flow_index;
+  const flowIndex = Math.max(0, Math.min(flowLimit, Math.floor(Number(flowInput) || 0)));
+  return {
+    window_size: Math.floor(numberFromControl("#analysis-window-size", state.params.window_size, 50, 25000)),
+    flow_index: flowIndex,
+    alpha: Number(numberFromControl("#analysis-alpha", state.params.alpha, 0, 1).toFixed(3)),
+    beta: Number(numberFromControl("#analysis-beta", state.params.beta, 0, 1).toFixed(3)),
+    fusion_mode: String($("#analysis-fusion-mode")?.value || state.params.fusion_mode || "hard"),
+    seed: Math.floor(numberFromControl("#analysis-seed", state.params.seed, 0, 2147483647)),
+  };
+}
+
+function syncAnalysisControls() {
+  const params = state.params;
+  const values = {
+    "#analysis-window-size": params.window_size,
+    "#analysis-flow-index": params.flow_index,
+    "#flow-index": params.flow_index,
+    "#analysis-alpha": params.alpha,
+    "#analysis-beta": params.beta,
+    "#analysis-seed": params.seed,
+  };
+  Object.entries(values).forEach(([selector, value]) => {
+    const node = $(selector);
+    if (node && String(node.value) !== String(value)) node.value = String(value);
+  });
+  const fusion = $("#analysis-fusion-mode");
+  if (fusion && fusion.value !== params.fusion_mode) fusion.value = params.fusion_mode;
+  setText("#analysis-param-summary", `window ${params.window_size.toLocaleString()} / flow ${params.flow_index} / alpha ${fmt(params.alpha, 2)} / beta ${fmt(params.beta, 2)} / ${params.fusion_mode} / seed ${params.seed}`);
+}
+
+function paramsQuery(extra = {}) {
+  const params = { ...state.params, ...extra };
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => query.set(key, value));
+  return query.toString();
+}
+
+function scheduleDashboardRefresh(delay = 260) {
+  window.clearTimeout(state.refreshTimer);
+  state.refreshTimer = window.setTimeout(() => {
+    state.params = readAnalysisControls();
+    syncAnalysisControls();
+    loadDashboard();
+  }, delay);
+}
+
 function setupControls() {
-  $("#btn-refresh")?.addEventListener("click", loadDashboard);
+  $("#btn-refresh")?.addEventListener("click", () => {
+    state.params = readAnalysisControls();
+    syncAnalysisControls();
+    loadDashboard();
+  });
   $("#btn-run-all")?.addEventListener("click", runAll);
   $("#btn-export-charts")?.addEventListener("click", exportCharts);
+  $("#btn-apply-analysis")?.addEventListener("click", () => {
+    state.params = readAnalysisControls();
+    syncAnalysisControls();
+    loadDashboard();
+  });
+  $$(".analysis-control").forEach((control) => {
+    control.addEventListener("change", () => scheduleDashboardRefresh(80));
+  });
   $("#btn-analyse-flow")?.addEventListener("click", () => {
     const index = Number($("#flow-index")?.value || 0);
     loadFlow(index);
@@ -102,16 +183,22 @@ function setupControls() {
 }
 
 async function loadDashboard() {
-  setText("#run-all-feedback", "Loading");
+  state.params = readAnalysisControls();
+  syncAnalysisControls();
+  const token = state.requestToken + 1;
+  state.requestToken = token;
+  const query = paramsQuery();
+  setText("#run-all-feedback", "Refreshing charts");
   const [charts, research, novelty, ablation, artifacts, status, flow] = await Promise.allSettled([
-    fetchJSON("/api/charts?window_size=750&flow_index=0"),
-    fetchJSON("/api/research?window_size=750&flow_index=0"),
-    fetchJSON("/api/novelty?window_size=1000&flow_index=0"),
-    fetchJSON("/api/ablation?window_size=750&flow_index=0"),
+    fetchJSON(`/api/charts?${query}`),
+    fetchJSON(`/api/research?${query}`),
+    fetchJSON(`/api/novelty?${query}`),
+    fetchJSON(`/api/ablation?${query}`),
     fetchJSON("/api/research-artifacts"),
     fetchJSON("/api/backend/status"),
-    fetchJSON("/api/single-flow?flow_index=0"),
+    fetchJSON(`/api/single-flow?${query}`),
   ]);
+  if (token !== state.requestToken) return;
 
   state.charts = charts.status === "fulfilled" ? charts.value : fallbackCharts();
   state.research = research.status === "fulfilled" ? research.value : fallbackResearch();
@@ -121,17 +208,27 @@ async function loadDashboard() {
   state.status = status.status === "fulfilled" ? status.value : null;
   state.maxFlowIndex = Number(state.status?.max_index ?? state.maxFlowIndex);
   state.flow = flow.status === "fulfilled" ? flow.value : null;
+  state.params = { ...state.params, ...(state.charts?.parameters || state.research?.parameters || {}) };
+  syncAnalysisControls();
 
   renderDashboard();
   setText("#run-all-feedback", "Ready");
 }
 
 async function loadFlow(index) {
+  const flowLimit = Math.max(0, Number(state.maxFlowIndex || 0));
+  state.params.flow_index = Math.max(0, Math.min(flowLimit, Math.floor(Number(index) || 0)));
+  syncAnalysisControls();
+  await loadDashboard();
+  return;
+}
+
+async function loadSingleFlowOnly(index) {
   setText("#warning-title", "Analysing flow");
   setText("#warning-copy", `Fetching flow ${index} from the test split.`);
   setText("#run-all-feedback", "Analysing");
   try {
-    state.flow = await fetchJSON(`/api/single-flow?flow_index=${encodeURIComponent(index)}`);
+    state.flow = await fetchJSON(`/api/single-flow?${paramsQuery({ flow_index: index })}`);
     const input = $("#flow-index");
     if (input) input.value = String(state.flow?.index ?? index);
     setText("#run-all-feedback", "Ready");
@@ -148,7 +245,13 @@ async function runAll() {
   const feedback = $("#run-all-feedback");
   if (feedback) feedback.textContent = "Run All starting";
   try {
-    const job = await fetchJSON("/api/run-all", { method: "POST" });
+    state.params = readAnalysisControls();
+    syncAnalysisControls();
+    const job = await fetchJSON("/api/run-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.params),
+    });
     const jobId = job.job_id;
     if (!jobId) {
       throw new Error("Backend did not return a job id.");
@@ -213,18 +316,18 @@ function renderAllCharts() {
   drawRobustnessBars("robustnessChart", rows);
   drawRobustnessBars("comparisonChart", rows);
   drawMetricProfile("metricTrendChart", trend.labels || [], [
-    { name: "Baseline accuracy", values: trend.existing_accuracy || [], color: palette.blue },
-    { name: "Proposed accuracy", values: trend.proposed_accuracy || [], color: palette.teal },
+    { name: "Baseline accuracy", values: trend.existing_accuracy || [], color: palette.baseline },
+    { name: "Proposed accuracy", values: trend.proposed_accuracy || [], color: palette.proposed },
     { name: "Baseline F1", values: trend.existing_f1 || [], color: palette.amber },
     { name: "Proposed F1", values: trend.proposed_f1 || [], color: palette.green },
   ], { maxY: 1 });
   drawGroupedBars("metricComparisonChart", metric.labels || [], [
-    { name: "Existing", values: metric.existing || [], color: palette.blue },
-    { name: "Proposed", values: metric.proposed || [], color: palette.teal },
+    { name: "Existing", values: metric.existing || [], color: palette.baseline },
+    { name: "Proposed", values: metric.proposed || [], color: palette.proposed },
   ], { maxY: 1 });
   drawGroupedBars("perClassF1Chart", perClass.labels || [], [
-    { name: "Existing", values: perClass.existing_f1 || [], color: palette.blue },
-    { name: "Proposed", values: perClass.proposed_f1 || [], color: palette.teal },
+    { name: "Existing", values: perClass.existing_f1 || [], color: palette.baseline },
+    { name: "Proposed", values: perClass.proposed_f1 || [], color: palette.proposed },
   ], { maxY: 1, slanted: true });
   drawConfusionMatrixCanvas("confusionMatrixChart", state.research?.evaluation_labels || state.research?.classes || [], state.research?.confusion_matrix || []);
   drawRocCurve("rocCurveChart", state.charts?.roc_curve || {});
@@ -239,8 +342,8 @@ function renderAllCharts() {
   })), { maxY: 1 });
   const gain = state.charts?.attack_recall_gain || {};
   drawGroupedBars("attackGainChart", gain.labels || [], [
-    { name: "Existing", values: gain.baseline || [], color: palette.blue },
-    { name: "Proposed", values: gain.proposed || [], color: palette.teal },
+    { name: "Existing", values: gain.baseline || [], color: palette.baseline },
+    { name: "Proposed", values: gain.proposed || [], color: palette.proposed },
   ], { maxY: 1, slanted: true });
   const unknown = state.charts?.unknown_attack_detection || {};
   drawGroupedBars("unknownDetectionChart", unknown.labels || [], [
@@ -374,10 +477,10 @@ async function exportCharts() {
       metadata: {
         dashboard: "uncertainty-aware-nids",
         exported_from: window.location.href,
-        export_scale: 2,
+        export_scale: 3,
         figure_source: "current live backend payload",
       },
-      charts: canvases.map(([name, canvas]) => ({ name, image: highResCanvasDataURL(canvas, 2) })),
+      charts: canvases.map(([name, canvas]) => ({ name, image: highResCanvasDataURL(canvas, 3) })),
     }),
   }).then((result) => {
     setText("#run-all-feedback", `Exported ${result.saved?.length || 0} charts`);
@@ -543,7 +646,7 @@ function drawAxes(ctx, width, height, plot, maxY) {
   ctx.lineTo(plot.right, plot.bottom);
   ctx.stroke();
   ctx.fillStyle = palette.muted;
-  ctx.font = "11px Inter, sans-serif";
+  ctx.font = "12px Inter, sans-serif";
   ctx.textAlign = "right";
   for (let i = 0; i <= 4; i += 1) {
     const y = plot.bottom - (plot.height * i) / 4;
@@ -552,7 +655,8 @@ function drawAxes(ctx, width, height, plot, maxY) {
     ctx.moveTo(plot.left, y);
     ctx.lineTo(plot.right, y);
     ctx.stroke();
-    ctx.fillText(fmt((maxY * i) / 4, maxY <= 1 ? 2 : 0), plot.left - 8, y + 4);
+    const axisValue = (maxY * i) / 4;
+    ctx.fillText(maxY <= 1 ? `${Math.round(axisValue * 100)}%` : fmt(axisValue, 0), plot.left - 8, y + 4);
   }
 }
 
@@ -563,12 +667,12 @@ function drawGroupedBars(id, labels, series, options = {}) {
   const cleanLabels = labels.length ? labels : ["Accuracy", "Precision", "Recall", "F1"];
   const numericValues = series.flatMap((item) => item.values.map(Number).filter(Number.isFinite));
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...numericValues);
-  const plot = { left: 52, right: width - 20, top: 24, bottom: height - 58 };
+  const plot = { left: 58, right: width - 22, top: 42, bottom: height - (options.slanted ? 86 : 66) };
   plot.width = plot.right - plot.left;
   plot.height = plot.bottom - plot.top;
   drawAxes(ctx, width, height, plot, maxValue);
   const groupWidth = plot.width / cleanLabels.length;
-  const barWidth = Math.max(5, Math.min(24, (groupWidth - 14) / Math.max(1, series.length)));
+  const barWidth = Math.max(4, Math.min(22, (groupWidth - 16) / Math.max(1, series.length)));
   cleanLabels.forEach((label, index) => {
     series.forEach((item, sIndex) => {
       const value = Number(item.values[index] || 0);
@@ -576,17 +680,23 @@ function drawGroupedBars(id, labels, series, options = {}) {
       const h = Math.max(0, (value / maxValue) * plot.height);
       ctx.fillStyle = item.color;
       ctx.fillRect(x, plot.bottom - h, barWidth - 2, h);
+      if (series.length <= 2 && groupWidth > 52) {
+        ctx.fillStyle = palette.ink;
+        ctx.font = "10px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(fmt(value, value >= 0.1 ? 2 : 3), x + (barWidth - 2) / 2, plot.bottom - h - 6);
+      }
     });
     ctx.save();
     ctx.fillStyle = palette.muted;
-    ctx.font = "11px Inter, sans-serif";
+    ctx.font = "12px Inter, sans-serif";
     ctx.textAlign = options.slanted ? "right" : "center";
     ctx.translate(plot.left + index * groupWidth + groupWidth / 2, plot.bottom + 18);
     if (options.slanted) ctx.rotate(-0.58);
-    ctx.fillText(compactLabel(label, options.slanted ? 11 : 12), 0, 0);
+    ctx.fillText(compactLabel(label, options.slanted ? 13 : 12), 0, 0);
     ctx.restore();
   });
-  drawLegend(ctx, series, plot.left, 12);
+  drawLegend(ctx, series, plot.left, 16, plot.width);
 }
 
 function drawBars(id, labels, values, options = {}) {
@@ -648,7 +758,7 @@ function drawDualMetricBars(id, latency, throughput) {
   drawLegend(ctx, [
     { name: "Latency ms", color: palette.coral },
     { name: "Throughput flows/s", color: palette.teal },
-  ], plot.left, 14);
+  ], plot.left, 14, plot.width);
 }
 
 function chartPlot(width, height, left = 54, rightPad = 22, top = 26, bottomPad = 54) {
@@ -721,7 +831,7 @@ function drawMetricProfile(id, labels, series, options = {}) {
     const x = cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width;
     ctx.fillText(compactLabel(label, 12), x, plot.bottom + 22);
   });
-  drawLegend(ctx, series, plot.left, 14);
+  drawLegend(ctx, series, plot.left, 14, plot.width);
 }
 
 function drawAreaLine(id, labels, values, options = {}) {
@@ -777,12 +887,14 @@ function drawRocCurve(id, roc) {
   ctx.lineTo(plot.right, plot.top);
   ctx.stroke();
   ctx.setLineDash([]);
-  drawSmoothLine(ctx, baseline.length ? baseline : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 1, 0.82, 0, 1, 0, 1)], palette.blue, 2.5);
-  drawSmoothLine(ctx, proposed.length ? proposed : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 0.18, 0.74, 0, 1, 0, 1), scalePoint(plot, 1, 1, 0, 1, 0, 1)], palette.teal, 3);
+  ctx.setLineDash([5, 4]);
+  drawSmoothLine(ctx, baseline.length ? baseline : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 1, 0.82, 0, 1, 0, 1)], palette.baseline, 2.4);
+  ctx.setLineDash([]);
+  drawSmoothLine(ctx, proposed.length ? proposed : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 0.18, 0.74, 0, 1, 0, 1), scalePoint(plot, 1, 1, 0, 1, 0, 1)], palette.proposed, 4);
   drawLegend(ctx, [
-    { name: "DNN baseline", color: palette.blue },
-    { name: "Proposed", color: palette.teal },
-  ], plot.left, 13);
+    { name: `DNN baseline AUC ${fmt(roc.baseline?.auc, 2)}`, color: palette.baseline },
+    { name: `Proposed AUC ${fmt(roc.proposed?.auc ?? roc.auc, 2)}`, color: palette.proposed },
+  ], plot.left, 13, plot.width);
   ctx.textAlign = "center";
   ctx.fillText("False positive rate", plot.left + plot.width / 2, height - 14);
   ctx.save();
@@ -806,12 +918,14 @@ function drawPrCurve(id, pr) {
   const mapPoints = (items) => (items || []).map((point) => scalePoint(plot, Number(point.x), Number(point.y), 0, 1, 0, 1));
   const baseline = mapPoints(pr.baseline?.points || []);
   const proposed = mapPoints(pr.proposed?.points || pr.points || []);
-  drawSmoothLine(ctx, baseline, palette.blue, 2.5);
-  drawSmoothLine(ctx, proposed, palette.teal, 3);
+  ctx.setLineDash([5, 4]);
+  drawSmoothLine(ctx, baseline, palette.baseline, 2.4);
+  ctx.setLineDash([]);
+  drawSmoothLine(ctx, proposed, palette.proposed, 4);
   drawLegend(ctx, [
-    { name: "DNN baseline", color: palette.blue },
-    { name: "Proposed", color: palette.teal },
-  ], plot.left, 13);
+    { name: `DNN baseline AP ${fmt(pr.baseline?.average_precision, 2)}`, color: palette.baseline },
+    { name: `Proposed AP ${fmt(pr.proposed?.average_precision ?? pr.average_precision, 2)}`, color: palette.proposed },
+  ], plot.left, 13, plot.width);
   ctx.fillStyle = palette.muted;
   ctx.font = "12px Inter, sans-serif";
   ctx.textAlign = "center";
@@ -1133,16 +1247,22 @@ function drawRobustnessBars(id, rows) {
   });
 }
 
-function drawLegend(ctx, series, x, y) {
+function drawLegend(ctx, series, x, y, maxWidth = 520) {
   ctx.font = "12px Inter, sans-serif";
   ctx.textAlign = "left";
   let cursor = x;
+  let rowY = y;
   series.forEach((item) => {
+    const itemWidth = ctx.measureText(item.name).width + 38;
+    if (cursor > x && cursor + itemWidth > x + maxWidth) {
+      cursor = x;
+      rowY += 18;
+    }
     ctx.fillStyle = item.color;
-    ctx.fillRect(cursor, y, 10, 10);
+    ctx.fillRect(cursor, rowY, 10, 10);
     ctx.fillStyle = palette.muted;
-    ctx.fillText(item.name, cursor + 15, y + 10);
-    cursor += ctx.measureText(item.name).width + 38;
+    ctx.fillText(item.name, cursor + 15, rowY + 10);
+    cursor += itemWidth;
   });
 }
 
@@ -1173,6 +1293,8 @@ function updateFigureCaptions() {
   const accuracy = metricDelta("Accuracy");
   const precision = metricDelta("Precision");
   const recall = metricDelta("Recall");
+  const rocAuc = metricDelta("ROC-AUC");
+  const prAuc = metricDelta("PR-AUC");
   const unknownRate = Number(analytics.unknown_rejection_rate || 0);
   const triggerRate = Number(analytics.rule_trigger_rate || 0);
   const roc = charts.roc_curve || {};
@@ -1183,8 +1305,10 @@ function updateFigureCaptions() {
   setText("#metric-comparison-caption", [
     accuracy ? deltaPhrase(accuracy.delta, "higher", "Accuracy") : "Accuracy unavailable",
     f1 ? deltaPhrase(f1.delta, "higher", "F1") : "F1 unavailable",
+    rocAuc ? deltaPhrase(rocAuc.delta, "higher", "ROC-AUC") : "ROC-AUC unavailable",
+    prAuc ? deltaPhrase(prAuc.delta, "higher", "PR-AUC") : "PR-AUC unavailable",
   ].join(". ") + ".");
-  setText("#per-class-caption", "Per-class F1 exposes where the rule layer helps or hurts; classes with lower proposed bars are retained as visible tradeoffs.");
+  setText("#per-class-caption", "Per-class F1 is computed from the live backend reports; proposed bars are separated from the existing baseline for reviewer readability.");
   setText("#confusion-caption", `Proposed confusion matrix for ${state.research?.limit || "--"} flows; UNKNOWN appears only when confidence rejection fires.`);
   setText("#roc-caption", roc.proposed?.auc != null ? `ROC AUC: baseline ${fmt(roc.baseline?.auc, 3)}, proposed ${fmt(roc.proposed?.auc, 3)}.` : "ROC data is not available for this payload.");
   setText("#pr-caption", pr.proposed?.average_precision != null ? `Average precision: baseline ${fmt(pr.baseline?.average_precision, 3)}, proposed ${fmt(pr.proposed?.average_precision, 3)}.` : "Precision-recall data is not available for this payload.");
@@ -1195,7 +1319,8 @@ function updateFigureCaptions() {
     precision ? deltaPhrase(precision.delta, "higher", "Precision") : "Precision unavailable",
     recall ? deltaPhrase(recall.delta, "higher", "Recall") : "Recall unavailable",
     `Rule traces fire on ${pct(triggerRate, 1)} of flows`,
-  ].join(". ") + ".");
+    state.ablation?.coverage ? `UNKNOWN gate keeps ${pct(state.ablation.coverage.accepted_rate, 1)} high-confidence coverage` : null,
+  ].filter(Boolean).join(". ") + ".");
   const attackGain = charts.attack_recall_gain || {};
   setText("#attack-gain-caption", `Attack-wise recall is shown per labelled class; maximum class lift is ${pct(Math.max(0, ...(attackGain.values || [0]).map(Number)), 1)}.`);
   setText("#unknown-detection-caption", `Adaptive UNKNOWN review captures ${pct(charts.unknown_attack_detection?.values?.[1] || 0, 1)} of labelled attack flows for analyst review.`);
@@ -1211,6 +1336,8 @@ function renderPublicationNotes() {
   const accuracy = metricDelta("Accuracy");
   const precision = metricDelta("Precision");
   const recall = metricDelta("Recall");
+  const stats = state.charts?.statistical_validation?.deltas || {};
+  const f1Stats = stats.f1 || {};
   const ablationSystems = (state.ablation?.systems || []).map((system) => system.name).join(" vs ") || "baseline vs neuro-symbolic";
   const improved = [
     accuracy && accuracy.delta > 0.0005 ? "accuracy" : null,
@@ -1231,9 +1358,9 @@ function renderPublicationNotes() {
   if (limitations) {
     limitations.innerHTML = [
       `Current dashboard window: ${state.research?.limit || "--"} flows; claims should cite the selected window and seed.`,
-      "External cross-dataset artifacts show transfer behavior separately; do not present same-dataset gains as universal robustness.",
+      "Cross-dataset hooks are exposed through /api/research-artifacts and kept separate from same-dataset claims.",
       "UNKNOWN rejection is an abstention/review signal. It should not be counted as correct classification without known unknown labels.",
-      `Novelty verdict: ${novelty.verdict || "not available"} for this backend configuration.`,
+      `Novelty verdict: ${novelty.verdict || "not available"}; paired-bootstrap F1 delta mean ${fmt(f1Stats.mean_delta, 3)} with positive rate ${pct(f1Stats.positive_rate || 0, 1)}.`,
     ].map((item) => `<li>${item}</li>`).join("");
   }
   const repro = $("#reproducibility-list");
@@ -1289,16 +1416,73 @@ function fallbackResearch() {
 }
 
 const stageTexts = [
-  ["NetFlow feature stream", "Flow features enter as structured vectors: bytes, packets, protocol, flags, duration, and service evidence."],
-  ["DNN probability manifold", "The baseline produces a softmax surface. The proposed system keeps that score but refuses to trust it blindly."],
-  ["UNKNOWN rejection gate", "Low-confidence and high-entropy traffic is diverted before symbolic rules can over-explain unseen attacks."],
-  ["Symbolic evidence lattice", "Accepted flows pass through auditable rules, so the dashboard shows both a label and the evidence behind it."],
-  ["Defence response mesh", "The final layer converts detection into analyst-ready severity, playbook, and containment context."],
+  {
+    title: "NetFlow input",
+    copy: "Structured flow vectors enter with bytes, packets, protocol, flags, duration, and service evidence.",
+    detail: "The active path begins at the telemetry plane.",
+    node: 0,
+    path: 0,
+  },
+  {
+    title: "DNN inference",
+    copy: "The neural model projects each flow into calibrated class probabilities instead of a single brittle label.",
+    detail: "The baseline bypass is visible below the proposed path.",
+    node: 1,
+    path: 1,
+  },
+  {
+    title: "UNKNOWN rejection",
+    copy: "Confidence, margin, and entropy gates route uncertain traffic to review before it can be over-labelled.",
+    detail: "Rejected traffic branches away from forced closed-set decisions.",
+    node: 2,
+    path: 2,
+  },
+  {
+    title: "Symbolic rules",
+    copy: "Accepted flows pass through auditable rules that can rescue attack evidence missed by the neural score.",
+    detail: "The lattice pulses when rule evidence is active.",
+    node: 3,
+    path: 3,
+  },
+  {
+    title: "Defense action",
+    copy: "The final decision becomes severity, containment guidance, and an analyst-ready playbook.",
+    detail: "The response mesh closes the detection-to-action loop.",
+    node: 4,
+    path: 4,
+  },
+  {
+    title: "Calibration",
+    copy: "Temperature scaling and reliability bins keep probability scores usable for thresholds and publication figures.",
+    detail: "The calibration satellite anchors the DNN and UNKNOWN gate.",
+    node: 1,
+    path: 2,
+    feature: true,
+  },
+  {
+    title: "Ablation",
+    copy: "Backend ablations isolate baseline, neuro-symbolic fusion, confidence gating, and the final proposed stack.",
+    detail: "The evidence satellite highlights the measured contribution of each layer.",
+    node: 3,
+    path: 3,
+    feature: true,
+  },
+  {
+    title: "Robustness",
+    copy: "Robustness views track attack recall, unknown review coverage, latency, throughput, and cross-window behavior.",
+    detail: "The stress satellite links the full path to reviewer-facing evidence.",
+    node: 4,
+    path: 4,
+    feature: true,
+  },
 ];
 
 function renderStageText() {
-  const [title, copy] = stageTexts[state.activeStage] || stageTexts[0];
-  $("#stage-note").innerHTML = `<strong>${title}</strong><span>${copy}</span>`;
+  const stage = stageTexts[state.activeStage] || stageTexts[0];
+  const note = $("#stage-note");
+  if (note) {
+    note.innerHTML = `<strong>${stage.title}</strong><span>${stage.copy}</span><small>${stage.detail}</small>`;
+  }
 }
 
 function initThree() {
@@ -1372,6 +1556,7 @@ function initThree() {
     mesh.userData.baseY = position.y;
     mesh.userData.pulse = true;
     mesh.userData.stage = index;
+    mesh.userData.nodeIndex = index;
     group.add(mesh);
 
     const edges = new THREE.LineSegments(
@@ -1382,6 +1567,7 @@ function initThree() {
     edges.userData.baseY = position.y;
     edges.userData.pulse = true;
     edges.userData.stage = index;
+    edges.userData.nodeIndex = index;
     group.add(edges);
 
     const label = makeTextSprite(node.label, node.color);
@@ -1446,13 +1632,75 @@ function initThree() {
   ]);
   const proposedTube = new THREE.Mesh(
     new THREE.TubeGeometry(proposedCurve, 180, 0.07, 12, false),
-    new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.84 })
+    new THREE.MeshBasicMaterial({ color: 0x7fd4d2, transparent: true, opacity: 0.18 })
   );
   const baselineTube = new THREE.Mesh(
     new THREE.TubeGeometry(baselineCurve, 130, 0.04, 10, false),
-    new THREE.MeshBasicMaterial({ color: 0xd95f45, transparent: true, opacity: 0.48 })
+    new THREE.MeshBasicMaterial({ color: 0xd95f45, transparent: true, opacity: 0.28 })
   );
   group.add(proposedTube, baselineTube);
+
+  const pathSegments = [];
+  for (let index = 0; index < positions.length - 1; index += 1) {
+    const segmentCurve = new THREE.CatmullRomCurve3([
+      positions[index],
+      positions[index].clone().lerp(positions[index + 1], 0.5).add(new THREE.Vector3(0, 0.28, 0.16)),
+      positions[index + 1],
+    ]);
+    const segment = new THREE.Mesh(
+      new THREE.TubeGeometry(segmentCurve, 54, 0.095, 12, false),
+      new THREE.MeshBasicMaterial({ color: 0x9ff9f5, transparent: true, opacity: index === 0 ? 0.95 : 0.18 })
+    );
+    segment.userData.pathIndex = index + 1;
+    pathSegments.push(segment);
+    group.add(segment);
+  }
+
+  const featureSpecs = [
+    { stage: 5, label: "Calibration", color: 0xf0b34a, node: 1, offset: new THREE.Vector3(0.0, 3.25, 1.45) },
+    { stage: 6, label: "Ablation", color: 0x9ed66f, node: 3, offset: new THREE.Vector3(0.0, 3.25, 1.45) },
+    { stage: 7, label: "Robustness", color: 0x9ab7ff, node: 4, offset: new THREE.Vector3(-0.55, 2.85, 1.85) },
+  ];
+  const featureMarkers = [];
+  const featureConnectors = [];
+  featureSpecs.forEach((feature) => {
+    const anchor = positions[feature.node].clone().add(feature.offset);
+    const marker = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.48, 2),
+      new THREE.MeshStandardMaterial({
+        color: feature.color,
+        emissive: feature.color,
+        emissiveIntensity: 0.45,
+        roughness: 0.22,
+        metalness: 0.1,
+      })
+    );
+    marker.position.copy(anchor);
+    marker.userData.baseY = anchor.y;
+    marker.userData.pulse = true;
+    marker.userData.featureStage = feature.stage;
+    featureMarkers.push(marker);
+    group.add(marker);
+
+    const connectorCurve = new THREE.CatmullRomCurve3([
+      positions[feature.node].clone().add(new THREE.Vector3(0, 0.6, 0)),
+      anchor.clone().lerp(positions[feature.node], 0.5).add(new THREE.Vector3(0, 0.4, 0.35)),
+      anchor,
+    ]);
+    const connector = new THREE.Mesh(
+      new THREE.TubeGeometry(connectorCurve, 40, 0.035, 8, false),
+      new THREE.MeshBasicMaterial({ color: feature.color, transparent: true, opacity: 0.18 })
+    );
+    connector.userData.featureStage = feature.stage;
+    featureConnectors.push(connector);
+    group.add(connector);
+
+    const label = makeTextSprite(feature.label, feature.color);
+    label.position.set(anchor.x, anchor.y + 0.82, anchor.z);
+    label.userData.featureStage = feature.stage;
+    featureMarkers.push(label);
+    group.add(label);
+  });
 
   const proposedPackets = makePackets(9, 0xffffff, 0x4bd4d0, proposedCurve, 0.18);
   const baselinePackets = makePackets(4, 0xffd3c9, 0xd95f45, baselineCurve, 0.12);
@@ -1484,18 +1732,24 @@ function initThree() {
     baselineCurve,
     particles,
     moduleMeshes,
+    proposedTube,
+    baselineTube,
+    pathSegments,
+    featureMarkers,
+    featureConnectors,
   };
   resizeThree();
 
   function animate(time) {
     requestAnimationFrame(animate);
     const seconds = time * 0.001;
+    const active = stageTexts[state.activeStage] || stageTexts[0];
     group.rotation.y = Math.sin(time * 0.00018) * 0.10;
     particles.rotation.y += 0.0008;
     group.children.forEach((child, index) => {
       if (child.userData.pulse) {
         const baseY = Number.isFinite(child.userData.baseY) ? child.userData.baseY : child.position.y;
-        const selected = child.userData.stage === state.activeStage;
+        const selected = child.userData.nodeIndex === active.node || child.userData.featureStage === state.activeStage;
         child.rotation.y += (selected ? 0.008 : 0.003) + index * 0.00015;
         child.position.y = baseY + Math.sin(seconds * 1.8 + index) * (selected ? 0.12 : 0.05);
         if (child.material?.opacity) child.material.opacity = selected ? 0.98 : 0.78;
@@ -1504,6 +1758,23 @@ function initThree() {
         child.scale.y = 0.7 + Math.abs(Math.sin(seconds * 2.2 + index)) * 0.7;
       }
     });
+    pathSegments.forEach((segment) => {
+      const activeSegment = segment.userData.pathIndex <= active.path;
+      segment.material.opacity = activeSegment ? 0.98 : 0.16;
+    });
+    featureConnectors.forEach((connector) => {
+      connector.material.opacity = connector.userData.featureStage === state.activeStage ? 0.92 : 0.18;
+    });
+    moduleMeshes.forEach((mesh, index) => {
+      const selected = index === active.node;
+      if (mesh.material?.emissive) {
+        mesh.material.emissive.setHex(selected ? 0xffffff : 0x000000);
+        mesh.material.emissiveIntensity = selected ? 0.08 : 0.0;
+      }
+      mesh.scale.setScalar(selected ? 1.08 : 1.0);
+    });
+    proposedTube.material.opacity = 0.16 + active.path * 0.055;
+    baselineTube.material.opacity = state.activeStage === 1 ? 0.58 : 0.24;
     proposedPackets.forEach((packet) => {
       const t = (time * 0.00013 + packet.userData.offset) % 1;
       packet.position.copy(proposedCurve.getPointAt(t));
@@ -1583,12 +1854,28 @@ function initCanvasFallback(canvas) {
     ctx.beginPath();
     nodes.forEach((x, index) => (index ? ctx.lineTo(x, y + Math.sin(index) * 45) : ctx.moveTo(x, y)));
     ctx.stroke();
+    const active = stageTexts[state.activeStage] || stageTexts[0];
     nodes.forEach((x, index) => {
       ctx.fillStyle = [palette.blue, palette.teal, palette.coral, palette.teal, palette.green][index];
       ctx.beginPath();
-      ctx.arc(x, y + Math.sin(index) * 45, 32 + Math.sin(time * 0.003 + index) * 4, 0, Math.PI * 2);
+      const selected = index === active.node;
+      ctx.arc(x, y + Math.sin(index) * 45, (selected ? 40 : 32) + Math.sin(time * 0.003 + index) * 4, 0, Math.PI * 2);
       ctx.fill();
     });
+    if (active.feature) {
+      const x = nodes[active.node];
+      const fy = y + Math.sin(active.node) * 45 - 86;
+      ctx.strokeStyle = "#f0b34a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + Math.sin(active.node) * 45 - 32);
+      ctx.lineTo(x, fy);
+      ctx.stroke();
+      ctx.fillStyle = "#f0b34a";
+      ctx.beginPath();
+      ctx.arc(x, fy, 18 + Math.sin(time * 0.004) * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);

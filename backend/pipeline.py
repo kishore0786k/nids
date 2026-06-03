@@ -280,6 +280,45 @@ def _log(context: dict[str, Any]) -> dict[str, Any]:
     return _stage_result("log", {"summary": summary}, {"audit_fields": len(summary)})
 
 
+def _publication_qa(context: dict[str, Any]) -> dict[str, Any]:
+    params: PipelineParams = context["params"]
+    ablation = engine.ablation_data(
+        window_size=params.window_size,
+        flow_index=params.flow_index,
+        alpha=params.alpha,
+        beta=params.beta,
+        fusion_mode=params.fusion_mode,
+        seed=params.seed,
+    )
+    research = context["research"]
+    metric_labels = research["window_metrics"]["labels"]
+    baseline = research["window_metrics"]["baseline_mlp"]
+    proposed = research["window_metrics"]["neuro_symbolic"]
+    deltas = {
+        label: round(float(proposed[idx]) - float(baseline[idx]), 6)
+        for idx, label in enumerate(metric_labels)
+        if proposed[idx] is not None and baseline[idx] is not None
+    }
+    validation = research.get("statistical_validation", {})
+    context["publication_qa"] = {
+        "ablation": ablation,
+        "metric_deltas": deltas,
+        "statistical_validation": validation,
+        "novelty_statement": (
+            "Calibrated neural scoring is fused with symbolic rule evidence and an adaptive "
+            "confidence/margin/entropy UNKNOWN review layer."
+        ),
+    }
+    return _stage_result(
+        "publication-qa",
+        context["publication_qa"],
+        {
+            "positive_metric_deltas": sum(1 for value in deltas.values() if value > 0),
+            "ablation_systems": len(ablation.get("systems", [])),
+        },
+    )
+
+
 def _visualize(context: dict[str, Any]) -> dict[str, Any]:
     params: PipelineParams = context["params"]
     charts = engine.chart_data(
@@ -338,6 +377,7 @@ def run_all_pipeline(raw_params: Mapping[str, Any], progress: ProgressCallback |
         ("feature-extract", _feature_extract),
         ("predict", _predict),
         ("log", _log),
+        ("publication-qa", _publication_qa),
         ("visualize", _visualize),
     ]
 
@@ -372,9 +412,18 @@ def run_all_pipeline(raw_params: Mapping[str, Any], progress: ProgressCallback |
             "delta_accuracy": context["research"]["rule_analytics"]["delta_accuracy"],
             "delta_f1": context["research"]["rule_analytics"]["delta_f1"],
             "novelty_verdict": context["research"]["novelty_proof"]["verdict"],
+            "publication_positive_metric_deltas": context["publication_qa"]["metric_deltas"],
             "elapsed_ms": round(elapsed_ms, 3),
         },
-        "datasets_changed": ["overview", "research_metrics", "charts", "defense_analysis", "novelty_panel", "backend_status"],
+        "datasets_changed": [
+            "overview",
+            "research_metrics",
+            "charts",
+            "defense_analysis",
+            "novelty_panel",
+            "publication_qa",
+            "backend_status",
+        ],
     }
     result = {
         "ok": True,
@@ -385,6 +434,7 @@ def run_all_pipeline(raw_params: Mapping[str, Any], progress: ProgressCallback |
         "research": context["research"],
         "charts": context["charts"],
         "novelty": context["novelty"],
+        "publication_qa": context["publication_qa"],
         "defense": context["defense"],
         "backend": context["backend"],
         "stages": [stage.to_dict() for stage in stages],

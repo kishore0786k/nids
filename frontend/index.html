@@ -33,10 +33,42 @@
     </header>
 
     <main>
+      <section class="analysis-controls" aria-label="Live evaluation controls">
+        <label>
+          <span>Window</span>
+          <input id="analysis-window-size" class="analysis-control" type="number" min="50" step="50" value="750" />
+        </label>
+        <label>
+          <span>Flow</span>
+          <input id="analysis-flow-index" class="analysis-control" type="number" min="0" value="0" />
+        </label>
+        <label>
+          <span>Alpha</span>
+          <input id="analysis-alpha" class="analysis-control" type="number" min="0" max="1" step="0.05" value="0.65" />
+        </label>
+        <label>
+          <span>Beta</span>
+          <input id="analysis-beta" class="analysis-control" type="number" min="0" max="1" step="0.05" value="0.35" />
+        </label>
+        <label>
+          <span>Fusion</span>
+          <select id="analysis-fusion-mode" class="analysis-control">
+            <option value="hard">Hard</option>
+            <option value="soft">Soft</option>
+          </select>
+        </label>
+        <label>
+          <span>Seed</span>
+          <input id="analysis-seed" class="analysis-control" type="number" min="0" step="1" value="60" />
+        </label>
+        <button id="btn-apply-analysis" class="btn primary">Apply</button>
+        <small id="analysis-param-summary">window 750 / flow 0 / alpha 0.65 / beta 0.35 / hard / seed 60</small>
+      </section>
+
       <section id="overview" class="section active">
         <div class="command-hero">
           <div>
-            <span class="eyeline">Publication-ready NIDS</span>
+            <span class="eyeline"></span>
             <h1>Uncertainty-Aware Neuro-Symbolic NIDS</h1>
             <p>The system handles unseen traffic robustly and explains its decisions with confidence rejection, symbolic evidence, and a lightweight operational workflow.</p>
           </div>
@@ -346,11 +378,14 @@
             <span><i class="legend-gate"></i>UNKNOWN rejection gate</span>
           </div>
           <div class="stage-labels">
-            <button class="stage active" data-stage="0">NetFlow</button>
-            <button class="stage" data-stage="1">DNN</button>
-            <button class="stage" data-stage="2">UNKNOWN Gate</button>
-            <button class="stage" data-stage="3">Symbolic Rules</button>
-            <button class="stage" data-stage="4">Defence</button>
+            <button class="stage stage-card active" data-stage="0"><span>Input</span><strong>NetFlow</strong></button>
+            <button class="stage stage-card" data-stage="1"><span>Inference</span><strong>DNN</strong></button>
+            <button class="stage stage-card" data-stage="2"><span>Abstain</span><strong>UNKNOWN</strong></button>
+            <button class="stage stage-card" data-stage="3"><span>Explain</span><strong>Rules</strong></button>
+            <button class="stage stage-card" data-stage="4"><span>Respond</span><strong>Defence</strong></button>
+            <button class="stage stage-card" data-stage="5"><span>Reliability</span><strong>Calibration</strong></button>
+            <button class="stage stage-card" data-stage="6"><span>Evidence</span><strong>Ablation</strong></button>
+            <button class="stage stage-card" data-stage="7"><span>Stress</span><strong>Robustness</strong></button>
           </div>
           <div class="stage-note" id="stage-note">
             <strong>NetFlow feature stream</strong>

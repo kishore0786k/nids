@@ -228,6 +228,30 @@ def api_novelty():
     ))
 
 
+@app.route("/api/publication-readiness")
+def api_publication_readiness():
+    params = _eval_params(1000)
+    charts = engine.chart_data(**params)
+    research = engine.analyse_window(**params)
+    return jsonify({
+        "parameters": charts.get("parameters", {}),
+        "novelty_statement": (
+            "The proposed NIDS combines calibrated neural probabilities, auditable symbolic rule fusion, "
+            "and adaptive confidence/margin/entropy rejection for UNKNOWN attack review."
+        ),
+        "metric_comparison": charts.get("metric_comparison", {}),
+        "ablation": engine.ablation_data(**params),
+        "statistical_validation": charts.get("statistical_validation", research.get("statistical_validation", {})),
+        "common_baseline_comparison": charts.get("common_baseline_comparison", {}),
+        "cross_dataset_validation": engine.backend_status().get("evidence_separation", {}),
+        "export_ready": {
+            "dashboard_png_endpoint": "/api/export-charts",
+            "publication_package": "backend/generate_publication_package.py",
+            "architecture_figure": "results/architecture.png",
+        },
+    })
+
+
 @app.route("/api/run-all", methods=["GET", "POST"])
 @rate_limit(settings.rate_limit_run_all)
 def api_run_all():

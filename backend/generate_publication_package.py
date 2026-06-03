@@ -41,91 +41,107 @@ def save_plot(name: str, fig) -> dict:
     for path in (png, pdf):
         if path.exists():
             path.unlink()
-    fig.savefig(png, dpi=300)
-    fig.savefig(pdf)
+    fig.savefig(png, dpi=360, bbox_inches="tight", facecolor="white")
+    fig.savefig(pdf, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return {"png": str(png), "pdf": str(pdf)}
 
 
 def generate_figures(charts: dict) -> list[dict]:
     figures = []
+    baseline_color = "#687989"
+    proposed_color = "#087f8c"
+    accent_color = "#c94f3d"
+    grid_color = "#d7e0e6"
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
         "font.size": 9,
         "axes.titlesize": 10,
         "axes.labelsize": 9,
         "legend.fontsize": 8,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
     })
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     x = [int(v) for v in charts["improvement_curve"]["labels"]]
-    ax.plot(x, charts["improvement_curve"]["existing_accuracy"], marker="o", label="Baseline MLP")
-    ax.plot(x, charts["improvement_curve"]["proposed_accuracy"], marker="s", label="Neuro-symbolic")
+    ax.plot(x, charts["improvement_curve"]["existing_accuracy"], marker="o", linewidth=1.8, color=baseline_color, label="Baseline MLP")
+    ax.plot(x, charts["improvement_curve"]["proposed_accuracy"], marker="s", linewidth=2.4, color=proposed_color, label="Neuro-symbolic")
     ax.set_xlabel("Evaluation window size")
     ax.set_ylabel("Accuracy")
+    ax.set_ylim(0, 1)
     ax.set_title("Accuracy Improvement Curve")
-    ax.grid(True, alpha=0.25)
-    ax.legend()
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_01_accuracy_improvement", **save_plot("figure_01_accuracy_improvement", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     labels = charts["per_class"]["labels"]
     idx = np.arange(len(labels))
-    ax.plot(idx, charts["per_class"]["existing_f1"], marker="o", label="Baseline MLP")
-    ax.plot(idx, charts["per_class"]["proposed_f1"], marker="s", label="Neuro-symbolic")
+    ax.plot(idx, charts["per_class"]["existing_f1"], marker="o", linewidth=1.8, color=baseline_color, label="Baseline MLP")
+    ax.plot(idx, charts["per_class"]["proposed_f1"], marker="s", linewidth=2.4, color=proposed_color, label="Neuro-symbolic")
     ax.set_xticks(idx)
     ax.set_xticklabels(labels, rotation=25, ha="right")
     ax.set_ylabel("F1-score")
+    ax.set_ylim(0, 1)
     ax.set_title("Per-Class F1 Comparison")
-    ax.grid(True, alpha=0.25)
-    ax.legend()
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_02_per_class_f1", **save_plot("figure_02_per_class_f1", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
-    ax.plot(charts["confidence_histogram"]["labels"], charts["confidence_histogram"]["values"], marker="o")
+    ax.plot(charts["confidence_histogram"]["labels"], charts["confidence_histogram"]["values"], marker="o", linewidth=2.2, color=proposed_color)
     ax.set_xlabel("Confidence bin")
     ax.set_ylabel("Flow count")
     ax.set_title("Prediction Confidence Distribution")
-    ax.grid(True, alpha=0.25)
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
     ax.tick_params(axis="x", rotation=30)
     figures.append({"id": "figure_03_confidence_distribution", **save_plot("figure_03_confidence_distribution", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
-    ax.bar(charts["class_error_rate"]["labels"], charts["class_error_rate"]["values"])
+    labels = charts["class_error_rate"]["labels"]
+    idx = np.arange(len(labels))
+    width = 0.36
+    ax.bar(idx - width / 2, charts["class_error_rate"].get("baseline_values", charts["class_error_rate"]["values"]), width, color=baseline_color, label="Baseline")
+    ax.bar(idx + width / 2, charts["class_error_rate"].get("proposed_values", charts["class_error_rate"]["values"]), width, color=proposed_color, label="Proposed")
+    ax.set_xticks(idx)
+    ax.set_xticklabels(labels, rotation=25, ha="right")
     ax.set_ylabel("Error rate")
+    ax.set_ylim(0, 1)
     ax.set_title("Class Error Rate")
-    ax.grid(True, axis="y", alpha=0.25)
-    ax.tick_params(axis="x", rotation=25)
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_04_class_error_rate", **save_plot("figure_04_class_error_rate", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     roc = charts["roc_curve"]
-    ax.plot([p["x"] for p in roc["baseline"]["points"]], [p["y"] for p in roc["baseline"]["points"]], label=f"Baseline AUC={roc['baseline']['auc']}")
-    ax.plot([p["x"] for p in roc["proposed"]["points"]], [p["y"] for p in roc["proposed"]["points"]], label=f"Proposed AUC={roc['proposed']['auc']}")
-    ax.plot([0, 1], [0, 1], "--", color="gray", label="Random baseline")
+    ax.plot([p["x"] for p in roc["baseline"]["points"]], [p["y"] for p in roc["baseline"]["points"]], "--", linewidth=1.8, color=baseline_color, label=f"Baseline AUC={roc['baseline']['auc']}")
+    ax.plot([p["x"] for p in roc["proposed"]["points"]], [p["y"] for p in roc["proposed"]["points"]], linewidth=2.5, color=proposed_color, label=f"Proposed AUC={roc['proposed']['auc']}")
+    ax.plot([0, 1], [0, 1], ":", color="#9aa7b1", label="Random baseline")
     ax.set_xlabel("False positive rate")
     ax.set_ylabel("True positive rate")
     ax.set_title("Micro-Average ROC Curve")
-    ax.grid(True, alpha=0.25)
-    ax.legend()
+    ax.grid(True, color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_05_roc_curve", **save_plot("figure_05_roc_curve", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     pr = charts["pr_curve"]
-    ax.plot([p["x"] for p in pr["baseline"]["points"]], [p["y"] for p in pr["baseline"]["points"]], label=f"Baseline AP={pr['baseline']['average_precision']}")
-    ax.plot([p["x"] for p in pr["proposed"]["points"]], [p["y"] for p in pr["proposed"]["points"]], label=f"Proposed AP={pr['proposed']['average_precision']}")
+    ax.plot([p["x"] for p in pr["baseline"]["points"]], [p["y"] for p in pr["baseline"]["points"]], "--", linewidth=1.8, color=baseline_color, label=f"Baseline AP={pr['baseline']['average_precision']}")
+    ax.plot([p["x"] for p in pr["proposed"]["points"]], [p["y"] for p in pr["proposed"]["points"]], linewidth=2.5, color=proposed_color, label=f"Proposed AP={pr['proposed']['average_precision']}")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.set_title("Micro-Average Precision-Recall Curve")
-    ax.grid(True, alpha=0.25)
-    ax.legend()
+    ax.set_ylim(0, 1)
+    ax.grid(True, color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_06_precision_recall_curve", **save_plot("figure_06_precision_recall_curve", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
-    ax.bar(charts["detection_counts"]["labels"], charts["detection_counts"]["values"])
+    ax.bar(charts["detection_counts"]["labels"], charts["detection_counts"]["values"], color=[baseline_color, baseline_color, proposed_color, "#228b5b", accent_color])
     ax.set_ylabel("Flow count")
     ax.set_title("Attack Detection and Containment Coverage")
-    ax.grid(True, axis="y", alpha=0.25)
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
     ax.tick_params(axis="x", rotation=15)
     figures.append({"id": "figure_07_detection_coverage", **save_plot("figure_07_detection_coverage", fig)})
 
@@ -133,52 +149,53 @@ def generate_figures(charts: dict) -> list[dict]:
     gain = charts["attack_recall_gain"]
     idx = np.arange(len(gain["labels"]))
     width = 0.36
-    ax.bar(idx - width / 2, gain["baseline"], width, label="Baseline")
-    ax.bar(idx + width / 2, gain["proposed"], width, label="Proposed")
+    ax.bar(idx - width / 2, gain["baseline"], width, color=baseline_color, label="Baseline")
+    ax.bar(idx + width / 2, gain["proposed"], width, color=proposed_color, label="Proposed")
     ax.set_xticks(idx)
     ax.set_xticklabels(gain["labels"], rotation=25, ha="right")
     ax.set_ylabel("Recall")
+    ax.set_ylim(0, 1)
     ax.set_title("Attack-Wise Recall Gain")
-    ax.grid(True, axis="y", alpha=0.25)
-    ax.legend()
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_08_attack_recall_gain", **save_plot("figure_08_attack_recall_gain", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     unknown = charts["unknown_attack_detection"]
-    ax.bar(unknown["labels"], unknown["values"], color=["#2d63b8", "#c94f3d"])
+    ax.bar(unknown["labels"], unknown["values"], color=[baseline_color, accent_color])
     ax.set_ylim(0, 1)
     ax.set_ylabel("Attack review rate")
     ax.set_title("UNKNOWN Attack Detection")
-    ax.grid(True, axis="y", alpha=0.25)
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
     figures.append({"id": "figure_09_unknown_attack_detection", **save_plot("figure_09_unknown_attack_detection", fig)})
 
     fig, ax1 = plt.subplots(figsize=(6.3, 4.0))
     latency = charts["latency_comparison"]
     throughput = charts["throughput_comparison"]
     x = np.arange(len(latency["labels"]))
-    ax1.bar(x - 0.18, latency["values"], 0.36, color="#c94f3d", label="Latency (ms)")
+    ax1.bar(x - 0.18, latency["values"], 0.36, color=accent_color, label="Latency (ms)")
     ax1.set_ylabel("Latency (ms)")
     ax2 = ax1.twinx()
-    ax2.bar(x + 0.18, throughput["values"], 0.36, color="#0f8b8d", label="Throughput (flows/s)")
+    ax2.bar(x + 0.18, throughput["values"], 0.36, color=proposed_color, label="Throughput (flows/s)")
     ax2.set_ylabel("Throughput (flows/s)")
     ax1.set_xticks(x)
     ax1.set_xticklabels(latency["labels"])
     ax1.set_title("Detection Latency and Throughput")
-    ax1.grid(True, axis="y", alpha=0.25)
+    ax1.grid(True, axis="y", color=grid_color, linewidth=0.7)
     figures.append({"id": "figure_10_latency_throughput", **save_plot("figure_10_latency_throughput", fig)})
 
     fig, ax = plt.subplots(figsize=(6.3, 4.0))
     rules = charts["rule_trigger_analysis"]
     idx = np.arange(len(rules["labels"]))
     width = 0.36
-    ax.bar(idx - width / 2, rules["triggered"], width, label="Triggered")
-    ax.bar(idx + width / 2, rules["applied"], width, label="Applied")
+    ax.bar(idx - width / 2, rules["triggered"], width, color="#c98211", label="Triggered")
+    ax.bar(idx + width / 2, rules["applied"], width, color=proposed_color, label="Applied")
     ax.set_xticks(idx)
     ax.set_xticklabels(rules["labels"], rotation=25, ha="right")
     ax.set_ylabel("Flow count")
     ax.set_title("Symbolic Rule Trigger Analysis")
-    ax.grid(True, axis="y", alpha=0.25)
-    ax.legend()
+    ax.grid(True, axis="y", color=grid_color, linewidth=0.7)
+    ax.legend(frameon=False)
     figures.append({"id": "figure_11_rule_trigger_analysis", **save_plot("figure_11_rule_trigger_analysis", fig)})
 
     return figures

@@ -27,7 +27,7 @@ def _empty_stage(name: str) -> dict[str, Any]:
     return {"name": name, "status": "pending", "data": {}, "metrics": {}, "errors": []}
 
 
-STAGE_NAMES = ["capture", "preprocess", "feature-extract", "predict", "log", "visualize"]
+STAGE_NAMES = ["capture", "preprocess", "feature-extract", "predict", "log", "publication-qa", "visualize"]
 
 
 def _progress_percent(job: dict[str, Any]) -> int:
