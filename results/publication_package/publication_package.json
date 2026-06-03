@@ -56,6 +56,15 @@
         "hard",
         60,
         0.35
+      ],
+      [
+        750,
+        13070,
+        0.65,
+        0.35,
+        "hard",
+        60,
+        0.35
       ]
     ],
     "cached_chart_windows": [
@@ -75,6 +84,12 @@
         0.4,
         0,
         60
+      ],
+      [
+        750,
+        0.4,
+        13070,
+        60
       ]
     ],
     "cached_feature_windows": [
@@ -88,7 +103,7 @@
         0.35
       ]
     ],
-    "incident_count": 1,
+    "incident_count": 2,
     "note": "Frontend data is served from Flask endpoints backed by model and CSV resources."
   },
   "overview": {
@@ -3521,8 +3536,8 @@
         "Proposed"
       ],
       "values": [
-        1.655039,
-        0.949384
+        3.815639,
+        2.188775
       ],
       "source": "effective operational latency derived from measured backend evaluation time, baseline error review burden, symbolic rule rate, and UNKNOWN shortcut rate"
     },
@@ -3532,8 +3547,8 @@
         "Proposed"
       ],
       "values": [
-        604.215,
-        1053.314
+        262.079,
+        456.877
       ],
       "source": "derived flows/s from measured mean response latency"
     },

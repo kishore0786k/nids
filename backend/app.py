@@ -98,8 +98,8 @@ def _float_param(name, default, minimum=None, maximum=None, *aliases):
     return value
 
 
-def _fusion_mode_param(default="hard"):
-    mode = str(_raw_param("fusion_mode", default)).strip().lower()
+def _fusion_mode_param(default="hard", *aliases):
+    mode = str(_raw_param("fusion_mode", default, *aliases)).strip().lower()
     if mode not in {"hard", "soft"}:
         raise ValueError("fusion_mode must be 'hard' or 'soft'.")
     return mode
@@ -118,11 +118,11 @@ def _validate_upload(file_storage):
 
 def _eval_params(default_window=750):
     return {
-        "window_size": _int_param("window_size", default_window, 50, None, "limit", "n"),
-        "flow_index": _int_param("flow_index", 0, 0, None, "flow_idx", "idx"),
+        "window_size": _int_param("window_size", default_window, 50, None, "window", "limit", "n"),
+        "flow_index": _int_param("flow_index", 0, 0, None, "flow", "flow_idx", "idx"),
         "alpha": _float_param("alpha", engine.DEFAULT_ALPHA, 0.0, 1.0),
         "beta": _float_param("beta", 1.0 - _float_param("alpha", engine.DEFAULT_ALPHA, 0.0, 1.0), 0.0, 1.0),
-        "fusion_mode": _fusion_mode_param(engine.SYMBOLIC_FUSION_MODE),
+        "fusion_mode": _fusion_mode_param(engine.SYMBOLIC_FUSION_MODE, "fusion"),
         "seed": _int_param("seed", engine.DEFAULT_SEED, 0, 2_147_483_647),
     }
 
@@ -199,7 +199,16 @@ def legacy_spa_routes():
 
 @app.route("/api/overview")
 def api_overview():
-    return jsonify(engine.overview_data())
+    return jsonify(engine.overview_data(**_eval_params(750)))
+
+
+@app.route("/api/experiment")
+def api_experiment():
+    params = _eval_params(750)
+    payload = engine.experiment_payload(**params)
+    payload["artifacts"] = _research_artifacts_payload()
+    payload["status"] = engine.backend_status()
+    return jsonify(payload)
 
 
 @app.route("/api/research")
@@ -356,8 +365,7 @@ def api_backend_status():
     return jsonify(engine.backend_status())
 
 
-@app.route("/api/research-artifacts")
-def api_research_artifacts():
+def _research_artifacts_payload():
     results_dir = PROJECT_ROOT / "results"
 
     def read_json(name):
@@ -379,11 +387,16 @@ def api_research_artifacts():
         except Exception as exc:
             return {"available": False, "path": str(path), "error": str(exc), "rows": []}
 
-    return jsonify({
+    return {
         "cross_dataset": read_json("cross_dataset_results.json"),
         "calibration": read_json("calibration_results.json"),
         "ablation": read_csv("ablation_table.csv"),
-    })
+    }
+
+
+@app.route("/api/research-artifacts")
+def api_research_artifacts():
+    return jsonify(_research_artifacts_payload())
 
 
 @app.route("/api/single-flow")

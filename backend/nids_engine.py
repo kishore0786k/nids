@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import threading
@@ -59,6 +60,7 @@ _evaluation_cache = {}
 _analysis_cache = {}
 _chart_cache = {}
 _novelty_cache = {}
+_ablation_cache = {}
 _feature_window_cache = {}
 _incident_store = {}
 _resource_lock = threading.Lock()
@@ -165,6 +167,24 @@ def _config_public(config: EvalConfig) -> dict[str, Any]:
         "seed": config.seed,
         "unknown_threshold": json_number(config.unknown_threshold, 6),
     }
+
+
+def _context_public(config: EvalConfig) -> dict[str, Any]:
+    return {
+        "window": config.window_size,
+        "flow": config.flow_index,
+        "alpha": json_number(config.alpha, 6),
+        "beta": json_number(config.beta, 6),
+        "fusion": config.fusion_mode,
+        "seed": config.seed,
+        "unknown_threshold": json_number(config.unknown_threshold, 6),
+        "parameter_hash": _parameter_hash(config),
+    }
+
+
+def _parameter_hash(config: EvalConfig) -> str:
+    raw = json.dumps(_config_public(config), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _window_indices(config: EvalConfig) -> np.ndarray:
@@ -315,6 +335,7 @@ def _clear_caches() -> None:
     _analysis_cache.clear()
     _chart_cache.clear()
     _novelty_cache.clear()
+    _ablation_cache.clear()
     _feature_window_cache.clear()
 
 
@@ -918,70 +939,27 @@ def _prediction_evidence(
     }
 
 
-def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSION_MODE, seed=DEFAULT_SEED):
-    load_resources()
-    idx = _coerce_int(index, default=0, minimum=0, maximum=len(_X_test) - 1)
-    config = evaluation_config(
-        window_size=max(MIN_ANALYSIS_LIMIT, min(750, len(_X_test))),
-        flow_index=idx,
-        alpha=alpha,
-        beta=beta,
-        fusion_mode=fusion_mode,
-        seed=seed,
-    )
-    sample = _X_test.iloc[idx]
-    true_label = str(_y_test.iloc[idx])
+def _flow_payload_from_evaluation(evaluated: dict[str, Any], row_pos: int = 0) -> dict[str, Any]:
+    config = evaluated["config"]
+    row_pos = max(0, min(int(row_pos), len(evaluated["indices"]) - 1))
+    idx = int(evaluated["indices"][row_pos])
+    sample = evaluated["subset_X"].iloc[row_pos]
     sample_frame = sample.to_frame().T
-    baseline_probs = _aligned_probabilities(_baseline_model, sample_frame, _classes)[0]
-    proposed_probs = _calibrated_probabilities(_aligned_probabilities(_base_model, sample_frame, _classes))[0]
-    base_pred = str(_classes[int(np.argmax(baseline_probs))])
-    neural_pred = str(_classes[int(np.argmax(proposed_probs))])
-    policy = _get_uncertainty_policy()
-    adaptive_tau = max(config.unknown_threshold, float(policy["confidence_threshold"]))
-    confidence_arr, entropy_arr, rejected_arr = _unknown_rejection(
-        np.asarray([proposed_probs]),
-        adaptive_tau,
-        policy["margin_threshold"],
-        policy["entropy_threshold"],
-    )
-    confidence = float(confidence_arr[0])
-    entropy = float(entropy_arr[0])
-    margin = float(_probability_margin(np.asarray([proposed_probs]))[0])
-    rejected_unknown = bool(rejected_arr[0])
-    ns_label, fired_rules, strength = apply_symbolic_rules(
-        sample,
-        neural_pred,
-        predicted_probs=proposed_probs,
-        class_labels=_classes,
-        rule_context=_get_symbolic_context(),
-        fusion_mode=config.fusion_mode,
-        alpha=config.alpha,
-        beta=config.beta,
-        confidence_threshold=0.55 + 0.30 * config.alpha,
-        strong_rule_threshold=0.72 + 0.20 * config.alpha,
-    )
-    ns_label = str(ns_label)
-    if rejected_unknown:
-        fired_rules.append(
-            {
-                "rule_id": "UNKNOWN_ABSTENTION_FLAG",
-                "old_label": ns_label,
-                "new_label": ns_label,
-                "strength": 0.0,
-                "reason": "Uncertainty gate flagged the flow for UNKNOWN attack review.",
-                "evidence": {
-                    "confidence": round(confidence, 6),
-                    "tau": round(adaptive_tau, 6),
-                    "margin": round(margin, 6),
-                    "margin_tau": policy["margin_threshold"],
-                    "entropy": round(entropy, 6),
-                    "entropy_tau": policy["entropy_threshold"],
-                },
-                "applied": False,
-            }
-        )
+    true_label = str(evaluated["true_arr"][row_pos])
+    baseline_probs = np.asarray(evaluated["baseline_probabilities"][row_pos], dtype=float)
+    proposed_probs = np.asarray(evaluated["probabilities"][row_pos], dtype=float)
+    base_pred = str(evaluated["base_preds"][row_pos])
+    neural_pred = str(evaluated["neural_preds"][row_pos])
+    ns_label = str(evaluated["ns_preds"][row_pos])
+    final_label = str(evaluated.get("final_preds", evaluated["ns_preds"])[row_pos])
+    confidence = float(evaluated["confidence"][row_pos])
+    entropy = float(evaluated["entropy"][row_pos])
+    margin = float(evaluated["margin"][row_pos])
+    rejected_unknown = bool(evaluated["rejected_unknown"][row_pos])
+    fired_rules = [dict(rule) for rule in evaluated["rule_traces"][row_pos]]
+    strength = float(evaluated["strengths"][row_pos])
     applied = [rule for rule in fired_rules if bool(rule.get("applied"))]
-    changed_prediction = ns_label != base_pred
+    changed_prediction = final_label != base_pred
     explanation = (
         applied[0].get("reason")
         if applied
@@ -996,28 +974,35 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
             warnings.warn(f"Robust model prediction failed for row {idx}: {exc}", RuntimeWarning)
             robust_pred = None
     evidence = _prediction_evidence(sample, sample_frame, idx, ns_label, proposed_probs, fired_rules, config)
+    defense_label = final_label if rejected_unknown else ns_label
 
     return {
         "index": idx,
         "parameters": _config_public(config),
+        "context": _context_public(config),
+        "parameter_hash": _parameter_hash(config),
         "true_label": true_label,
         "base_pred": base_pred,
         "neural_pred": neural_pred,
         "ns_label": ns_label,
-        "final_label": ns_label,
+        "final_label": final_label,
         "robust_pred": robust_pred,
         "confidence": json_number(confidence, 6),
         "entropy": json_number(entropy, 6),
         "margin": json_number(margin, 6),
-        "unknown_threshold": json_number(adaptive_tau, 6),
-        "uncertainty_policy": policy,
-        "rejected_unknown": bool(rejected_unknown),
-        "unknown_abstention": bool(rejected_unknown),
+        "unknown_threshold": json_number(evaluated["public"]["rule_analytics"].get("unknown_threshold"), 6),
+        "uncertainty_policy": {
+            "confidence_threshold": evaluated["public"]["rule_analytics"].get("unknown_threshold"),
+            "margin_threshold": evaluated["public"]["rule_analytics"].get("adaptive_margin_threshold"),
+            "entropy_threshold": evaluated["public"]["rule_analytics"].get("adaptive_entropy_threshold"),
+        },
+        "rejected_unknown": rejected_unknown,
+        "unknown_abstention": rejected_unknown,
         "rule_layer_skipped": False,
-        "risk": "attack" if is_attack(ns_label) else "benign",
-        "defense": defense_action(ns_label, confidence, fired_rules),
+        "risk": "attack" if rejected_unknown or is_attack(defense_label) else "benign",
+        "defense": defense_action(defense_label, confidence, fired_rules),
         "fired_rules": fired_rules,
-        "rule_strength": json_number(float(strength), 6),
+        "rule_strength": json_number(strength, 6),
         "explanation": explanation,
         "changed_prediction": bool(changed_prediction),
         "probabilities": {
@@ -1028,6 +1013,20 @@ def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSI
         "evidence": evidence,
         "features": {col: json_number(sample[col], 6) for col in _X_test.columns},
     }
+
+
+def predict_row(index, alpha=DEFAULT_ALPHA, beta=None, fusion_mode=SYMBOLIC_FUSION_MODE, seed=DEFAULT_SEED):
+    load_resources()
+    idx = _coerce_int(index, default=0, minimum=0, maximum=len(_X_test) - 1)
+    evaluated = _evaluate_window(
+        window_size=max(MIN_ANALYSIS_LIMIT, min(750, len(_X_test))),
+        flow_index=idx,
+        alpha=alpha,
+        beta=beta,
+        fusion_mode=fusion_mode,
+        seed=seed,
+    )
+    return _flow_payload_from_evaluation(evaluated, 0)
 
 
 def make_incident(flow):
@@ -1435,7 +1434,9 @@ def _evaluate_window(
     )
     cache_key = _config_key(config)
     if cache_key in _evaluation_cache:
-        return _evaluation_cache[cache_key]
+        cached = _evaluation_cache[cache_key]
+        cached.get("public", {}).setdefault("computation", {})["cache"] = "hit"
+        return cached
 
     started = perf_counter()
     indices = _window_indices(config)
@@ -1496,14 +1497,19 @@ def _evaluate_window(
         rejection_rate * 100.0,
     )
     ns_preds = np.asarray([str(label) for label in ns_preds])
+    final_preds = np.asarray([UNKNOWN_LABEL if rejected else label for label, rejected in zip(ns_preds, rejected_unknown)])
     proposed_probabilities = _fused_probabilities(probabilities, ns_preds, rule_traces, config)
     baseline_ranking = _ranking_payloads(true_arr, baseline_ranking_probabilities)
+    neural_ranking = _ranking_payloads(true_arr, probabilities)
     proposed_ranking = _ranking_payloads(true_arr, proposed_probabilities)
 
     ns_labels = list(_classes)
+    display_labels = [*ns_labels, UNKNOWN_LABEL] if bool(np.any(rejected_unknown)) else ns_labels
     base_report = classification_report(true_arr, base_preds, labels=_classes, output_dict=True, zero_division=0)
+    neural_report = classification_report(true_arr, neural_preds, labels=_classes, output_dict=True, zero_division=0)
     ns_report = classification_report(true_arr, ns_preds, labels=ns_labels, output_dict=True, zero_division=0)
     base_acc = float(np.mean(base_preds == np.asarray(true_arr)))
+    neural_acc = float(np.mean(neural_preds == np.asarray(true_arr)))
     ns_acc = float(np.mean(ns_preds == np.asarray(true_arr)))
     labels = _classes
     analytics = _rule_analytics(true_arr, base_preds, ns_preds, rule_traces, strengths, base_report, ns_report)
@@ -1543,8 +1549,8 @@ def _evaluate_window(
             "baseline": base_preds[i],
             "neural": neural_preds[i],
             "proposed": ns_preds[i],
-            "final_label": ns_preds[i],
-            "risk": "attack" if is_attack(ns_preds[i]) else "benign",
+            "final_label": final_preds[i],
+            "risk": "attack" if rejected_unknown[i] or is_attack(ns_preds[i]) else "benign",
             "changed": bool(base_preds[i] != ns_preds[i]),
             "changed_prediction": bool(base_preds[i] != ns_preds[i]),
             "rule_strength": json_number(float(strengths[i]), 6),
@@ -1623,6 +1629,8 @@ def _evaluate_window(
     public = {
         "limit": config.window_size,
         "parameters": _config_public(config),
+        "context": _context_public(config),
+        "parameter_hash": _parameter_hash(config),
         "metrics": live_metrics,
         "paper_summary": saved_paper_summary(),
         "window_metrics": {
@@ -1630,7 +1638,7 @@ def _evaluate_window(
             "baseline_mlp": live_metrics["existing"],
             "neuro_symbolic": live_metrics["proposed"],
         },
-        "reports": {"baseline_mlp": base_report, "neuro_symbolic": ns_report},
+        "reports": {"baseline_mlp": base_report, "neural_calibrated": neural_report, "neuro_symbolic": ns_report},
         "ranking_metrics": {
             "baseline_mlp": {
                 "roc_auc": baseline_ranking["roc"]["auc"],
@@ -1642,13 +1650,13 @@ def _evaluate_window(
             },
         },
         "classes": labels,
-        "evaluation_labels": ns_labels,
-        "confusion_matrix": confusion_matrix(true_arr, ns_preds, labels=ns_labels).tolist(),
+        "evaluation_labels": display_labels,
+        "confusion_matrix": confusion_matrix(true_arr, final_preds, labels=display_labels).tolist(),
         "class_distribution": {
-            "labels": ns_labels,
-            "values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
-            "baseline_values": [int(v) for v in pd.Series(base_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
-            "proposed_values": [int(v) for v in pd.Series(ns_preds).value_counts().reindex(ns_labels, fill_value=0).tolist()],
+            "labels": display_labels,
+            "values": [int(v) for v in pd.Series(final_preds).value_counts().reindex(display_labels, fill_value=0).tolist()],
+            "baseline_values": [int(v) for v in pd.Series(base_preds).value_counts().reindex(display_labels, fill_value=0).tolist()],
+            "proposed_values": [int(v) for v in pd.Series(final_preds).value_counts().reindex(display_labels, fill_value=0).tolist()],
         },
         "rule_hits": {"labels": list(active_rule_counts.keys()), "values": [int(v) for v in active_rule_counts.values()]},
         "rule_analytics": analytics,
@@ -1664,6 +1672,12 @@ def _evaluate_window(
             "mean_response_ms": json_number(elapsed_ms / max(1, config.window_size), 6),
             "policy": "Adaptive containment",
         },
+        "computation": {
+            "parameter_hash": _parameter_hash(config),
+            "evaluation_ms": json_number(elapsed_ms, 4),
+            "cache": "miss",
+            "surface": "shared evaluation payload",
+        },
         "evidence_sources": {
             "live_evaluation": "model predictions recomputed for this request window",
             "paper_summary": "saved values in results/metrics.json, never used for live dashboard charts",
@@ -1675,13 +1689,27 @@ def _evaluate_window(
     _evaluation_cache[cache_key] = {
         "public": public,
         "config": config,
+        "parameter_hash": _parameter_hash(config),
         "indices": indices,
         "subset_X": subset_X,
         "true_arr": true_arr,
+        "display_labels": display_labels,
+        "final_preds": final_preds,
         "baseline_probabilities": baseline_probabilities,
         "baseline_ranking_probabilities": baseline_ranking_probabilities,
         "probabilities": probabilities,
         "proposed_probabilities": proposed_probabilities,
+        "rankings": {
+            "baseline": baseline_ranking,
+            "neural": neural_ranking,
+            "proposed": proposed_ranking,
+        },
+        "reports": {
+            "baseline_mlp": base_report,
+            "neural_calibrated": neural_report,
+            "neuro_symbolic": ns_report,
+        },
+        "closed_set_neural": _expanded_metric_vector(neural_report, neural_acc, neural_ranking),
         "confidence": confidence,
         "baseline_confidence": baseline_confidence,
         "entropy": entropy,
@@ -1844,7 +1872,7 @@ def chart_data(
         fusion_mode=fusion_mode,
         seed=seed,
     )
-    if config.window_size < 100:
+    if config.window_size < 100 and len(_X_test) >= 100:
         config = config._replace(window_size=100)
     cache_key = _config_key(config)
     if cache_key in _chart_cache:
@@ -1863,9 +1891,6 @@ def chart_data(
     analysis = evaluated["public"]
     true_arr = evaluated["true_arr"]
     baseline_probabilities = evaluated["baseline_probabilities"]
-    baseline_ranking_probabilities = evaluated["baseline_ranking_probabilities"]
-    probabilities = evaluated["probabilities"]
-    proposed_probabilities = evaluated["proposed_probabilities"]
     confidence = evaluated["confidence"]
     rejected_unknown = evaluated["rejected_unknown"]
     base_preds = evaluated["base_preds"]
@@ -1895,8 +1920,8 @@ def chart_data(
         f"Improvement curve recomputed from live baseline/neuro-symbolic predictions for windows {windows}.",
     )
 
-    baseline_ranking = _ranking_payloads(true_arr, baseline_ranking_probabilities)
-    proposed_ranking = _ranking_payloads(true_arr, proposed_probabilities)
+    baseline_ranking = evaluated["rankings"]["baseline"]
+    proposed_ranking = evaluated["rankings"]["proposed"]
     roc_points = baseline_ranking["roc"]
     proposed_roc_points = proposed_ranking["roc"]
     pr_points = baseline_ranking["pr"]
@@ -2173,6 +2198,9 @@ def ablation_data(
     load_resources()
     selected_window = window_size if window_size is not None else limit
     config = evaluation_config(selected_window, flow_index, alpha, beta, fusion_mode, seed)
+    cache_key = _config_key(config)
+    if cache_key in _ablation_cache:
+        return _ablation_cache[cache_key]
     evaluated = _evaluate_window(
         window_size=config.window_size,
         flow_index=config.flow_index,
@@ -2188,19 +2216,7 @@ def ablation_data(
     if not accepted_mask.any():
         accepted_mask = np.ones(len(true_arr), dtype=bool)
     baseline = data["window_metrics"]["baseline_mlp"]
-    neural_report = classification_report(
-        evaluated["true_arr"],
-        evaluated["neural_preds"],
-        labels=_classes,
-        output_dict=True,
-        zero_division=0,
-    )
-    neural_acc = float(np.mean(evaluated["neural_preds"] == np.asarray(evaluated["true_arr"])))
-    closed_set_neural = _expanded_metric_vector(
-        neural_report,
-        neural_acc,
-        _ranking_payloads(evaluated["true_arr"], evaluated["probabilities"]),
-    )
+    closed_set_neural = evaluated["closed_set_neural"]
     closed_set_neuro_symbolic = data["window_metrics"]["neuro_symbolic"]
     uncertainty_layer = _closed_set_metrics(
         true_arr[accepted_mask],
@@ -2212,9 +2228,11 @@ def ablation_data(
         evaluated["ns_preds"][accepted_mask],
         evaluated["proposed_probabilities"][accepted_mask],
     )
-    return {
+    payload = {
         "limit": config.window_size,
         "parameters": _config_public(config),
+        "context": _context_public(config),
+        "parameter_hash": _parameter_hash(config),
         "labels": labels,
         "metric_mode": "exact multiclass live-window metrics; uncertainty stages report accepted high-confidence coverage",
         "coverage": {
@@ -2243,6 +2261,8 @@ def ablation_data(
             "The uncertainty layer reports selective high-confidence coverage plus explicit UNKNOWN review counts.",
         ],
     }
+    _ablation_cache[cache_key] = payload
+    return payload
 
 
 def novelty_data(limit=2000, alpha=0.10, flow_index=0, seed=DEFAULT_SEED):
@@ -2442,8 +2462,30 @@ def run_all(
     )
 
 
-def overview_data():
+def overview_data(
+    limit=750,
+    window_size=None,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+):
     load_resources()
+    selected_window = window_size if window_size is not None else limit
+    config = evaluation_config(selected_window, flow_index, alpha, beta, fusion_mode, seed)
+    evaluated = _evaluate_window(config.window_size, config.flow_index, config.alpha, config.beta, config.fusion_mode, config.seed)
+    analysis = evaluated["public"]
+    metrics = analysis["metrics"]
+    metric_labels = metrics.get("labels", [])
+    f1_index = next((idx for idx, label in enumerate(metric_labels) if "f1" in str(label).lower()), -1)
+    proposed_values = metrics.get("proposed") or []
+    existing_values = metrics.get("existing") or []
+    proposed_f1 = proposed_values[f1_index] if 0 <= f1_index < len(proposed_values) else None
+    baseline_f1 = existing_values[f1_index] if 0 <= f1_index < len(existing_values) else None
+    analysed = int(analysis.get("defense", {}).get("analysed_flows") or analysis.get("limit") or 0)
+    attack_flows = int(analysis.get("defense", {}).get("attack_flows") or 0)
+    analytics = analysis.get("rule_analytics", {})
     report = _metrics.get("classification_report", {})
     saved_per_class = {}
     for cls in _classes:
@@ -2457,13 +2499,101 @@ def overview_data():
 
     class_counts = _y_test.value_counts().sort_index()
     return {
+        "context": _context_public(config),
+        "parameters": _config_public(config),
+        "parameter_hash": _parameter_hash(config),
         "classes": _classes,
         "class_distribution": {"labels": class_counts.index.tolist(), "values": class_counts.values.tolist()},
         "saved_paper_per_class_metrics": saved_per_class,
         "paper_summary": saved_paper_summary(),
+        "live_summary": {
+            "total_flows": analysed,
+            "attack_rate": json_number(attack_flows / max(1, analysed), 6),
+            "attack_flows": attack_flows,
+            "proposed_f1": proposed_f1,
+            "baseline_f1": baseline_f1,
+            "f1_delta": json_number(float(proposed_f1 or 0.0) - float(baseline_f1 or 0.0), 6),
+            "unknown_detection_rate": analytics.get("unknown_rejection_rate"),
+            "unknown_detection_count": analytics.get("unknown_rejection_count"),
+            "confidence_mean": json_number(float(np.mean(evaluated["confidence"])), 6),
+            "entropy_mean": analytics.get("mean_entropy"),
+            "rule_trigger_rate": analytics.get("rule_trigger_rate"),
+            "binary_attack_recall_delta": analytics.get("binary_attack_recall_delta"),
+            "threat_summary": (
+                f"{attack_flows}/{analysed} flows are attack-labelled; "
+                f"{analytics.get('unknown_rejection_count', 0)} were routed to UNKNOWN review."
+            ),
+        },
         "total_samples": int(len(_y_test)),
         "num_classes": int(_y_test.nunique()),
         "max_index": int(len(_X_test) - 1),
+    }
+
+
+def experiment_payload(
+    limit=750,
+    window_size=None,
+    flow_index=0,
+    alpha=DEFAULT_ALPHA,
+    beta=None,
+    fusion_mode=SYMBOLIC_FUSION_MODE,
+    seed=DEFAULT_SEED,
+) -> dict[str, Any]:
+    load_resources()
+    selected_window = window_size if window_size is not None else limit
+    config = evaluation_config(selected_window, flow_index, alpha, beta, fusion_mode, seed)
+    cache_key = _config_key(config)
+    cache_hit = cache_key in _evaluation_cache
+    evaluated = _evaluate_window(config.window_size, config.flow_index, config.alpha, config.beta, config.fusion_mode, config.seed)
+    research = evaluated["public"]
+    flow = _flow_payload_from_evaluation(evaluated, 0)
+    charts = chart_data(
+        window_size=config.window_size,
+        flow_index=config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
+    ablation = ablation_data(
+        window_size=config.window_size,
+        flow_index=config.flow_index,
+        alpha=config.alpha,
+        beta=config.beta,
+        fusion_mode=config.fusion_mode,
+        seed=config.seed,
+    )
+    novelty = novelty_data(
+        config.window_size,
+        min(0.40, max(0.01, config.alpha)),
+        flow_index=config.flow_index,
+        seed=config.seed,
+    )
+    return {
+        "ok": True,
+        "context": _context_public(config),
+        "parameters": _config_public(config),
+        "parameter_hash": _parameter_hash(config),
+        "cache": {
+            "parameter_hash": _parameter_hash(config),
+            "evaluation": "hit" if cache_hit else "miss",
+            "analysis_cache_size": len(_analysis_cache),
+            "chart_cache_size": len(_chart_cache),
+            "ablation_cache_size": len(_ablation_cache),
+        },
+        "overview": overview_data(
+            window_size=config.window_size,
+            flow_index=config.flow_index,
+            alpha=config.alpha,
+            beta=config.beta,
+            fusion_mode=config.fusion_mode,
+            seed=config.seed,
+        ),
+        "research": research,
+        "charts": charts,
+        "novelty": novelty,
+        "ablation": ablation,
+        "flow": flow,
     }
 
 
@@ -2490,8 +2620,13 @@ def backend_status():
             "paper_summary": "loaded from results/metrics.json only when explicitly requested",
             "publication_package": "generated artifacts under results/publication_package and paper/generated",
         },
+        "cached_evaluation_hashes": [
+            _parameter_hash(EvalConfig(*key)) if isinstance(key, tuple) and len(key) == 7 else str(key)
+            for key in sorted(_evaluation_cache.keys())
+        ],
         "cached_analysis_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_analysis_cache.keys())],
         "cached_chart_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_chart_cache.keys())],
+        "cached_ablation_windows": [list(key) if isinstance(key, tuple) else key for key in sorted(_ablation_cache.keys())],
         "cached_novelty_windows": [list(key) for key in sorted(_novelty_cache.keys())],
         "cached_feature_windows": [list(key) for key in sorted(_feature_window_cache.keys())],
         "incident_count": len(_incident_store),
