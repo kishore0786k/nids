@@ -1014,6 +1014,70 @@ code {
   background: #ff856f;
 }
 
+.replay-button {
+  position: absolute;
+  top: 138px;
+  right: 26px;
+  min-height: 38px;
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: rgba(6, 10, 16, 0.64);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  backdrop-filter: blur(12px);
+}
+
+.replay-button.active {
+  background: #7fd4d2;
+  color: #071017;
+}
+
+.architecture-metrics {
+  position: absolute;
+  left: 26px;
+  bottom: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(390px, calc(100% - 430px));
+}
+
+.architecture-metrics article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  background: rgba(6, 10, 16, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.architecture-metrics span,
+.architecture-metrics small {
+  display: block;
+  color: #9fb2bf;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.architecture-metrics strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: #ffffff;
+  font-size: 17px;
+  line-height: 1.1;
+}
+
+.architecture-metrics small {
+  margin-top: 5px;
+  color: #7fd4d2;
+  text-transform: none;
+}
+
 .stage {
   min-height: 58px;
   border: 1px solid rgba(255,255,255,0.22);
@@ -1200,7 +1264,7 @@ code {
   }
 
   .stage-shell {
-    height: 640px;
+    height: 760px;
   }
 
   .architecture-legend {
@@ -1210,12 +1274,24 @@ code {
     width: auto;
   }
 
+  .replay-button {
+    top: 112px;
+    right: 16px;
+  }
+
   .stage-labels {
     left: 16px;
     right: 16px;
-    top: 112px;
+    top: 162px;
     width: auto;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .architecture-metrics {
+    left: 16px;
+    right: 16px;
+    bottom: 154px;
+    width: auto;
   }
 
   .stage-note {

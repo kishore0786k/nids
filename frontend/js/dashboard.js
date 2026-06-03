@@ -1,7 +1,18 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
+const DEFAULT_EXPERIMENT = {
+  window: 750,
+  flow: 0,
+  alpha: 0.65,
+  beta: 0.35,
+  fusion: "hard",
+  seed: 60,
+};
+
 const state = {
+  payload: null,
+  overview: null,
   charts: null,
   research: null,
   novelty: null,
@@ -11,18 +22,18 @@ const state = {
   status: null,
   maxFlowIndex: 20000,
   activeStage: 0,
+  attackReplay: false,
+  replayStage: -1,
   three: null,
-  params: {
-    window_size: 750,
-    flow_index: 0,
-    alpha: 0.65,
-    beta: 0.35,
-    fusion_mode: "hard",
-    seed: 60,
-  },
+  experiment: { ...DEFAULT_EXPERIMENT },
+  pendingExperiment: { ...DEFAULT_EXPERIMENT },
+  params: {},
+  previousOverview: null,
+  previousHash: null,
   refreshTimer: null,
   requestToken: 0,
 };
+state.params = experimentToParams(state.experiment);
 
 const palette = {
   ink: "#172026",
@@ -97,26 +108,79 @@ function numberFromControl(selector, fallback, minimum, maximum) {
   return value;
 }
 
-function readAnalysisControls() {
+function sanitizeExperiment(input = {}) {
   const flowLimit = Math.max(0, Number(state.maxFlowIndex || 0));
-  const flowInput = $("#analysis-flow-index")?.value ?? $("#flow-index")?.value ?? state.params.flow_index;
-  const flowIndex = Math.max(0, Math.min(flowLimit, Math.floor(Number(flowInput) || 0)));
   return {
-    window_size: Math.floor(numberFromControl("#analysis-window-size", state.params.window_size, 50, 25000)),
-    flow_index: flowIndex,
-    alpha: Number(numberFromControl("#analysis-alpha", state.params.alpha, 0, 1).toFixed(3)),
-    beta: Number(numberFromControl("#analysis-beta", state.params.beta, 0, 1).toFixed(3)),
-    fusion_mode: String($("#analysis-fusion-mode")?.value || state.params.fusion_mode || "hard"),
-    seed: Math.floor(numberFromControl("#analysis-seed", state.params.seed, 0, 2147483647)),
+    window: Math.floor(Math.max(50, Math.min(25000, Number(input.window ?? DEFAULT_EXPERIMENT.window) || DEFAULT_EXPERIMENT.window))),
+    flow: Math.max(0, Math.min(flowLimit, Math.floor(Number(input.flow ?? DEFAULT_EXPERIMENT.flow) || 0))),
+    alpha: Number(Math.max(0, Math.min(1, Number(input.alpha ?? DEFAULT_EXPERIMENT.alpha) || 0)).toFixed(3)),
+    beta: Number(Math.max(0, Math.min(1, Number(input.beta ?? DEFAULT_EXPERIMENT.beta) || 0)).toFixed(3)),
+    fusion: ["hard", "soft"].includes(String(input.fusion || "").toLowerCase()) ? String(input.fusion).toLowerCase() : DEFAULT_EXPERIMENT.fusion,
+    seed: Math.floor(Math.max(0, Math.min(2147483647, Number(input.seed ?? DEFAULT_EXPERIMENT.seed) || 0))),
   };
 }
 
+function experimentToParams(experiment = state.experiment) {
+  const clean = sanitizeExperiment(experiment);
+  return {
+    window_size: clean.window,
+    flow_index: clean.flow,
+    alpha: clean.alpha,
+    beta: clean.beta,
+    fusion_mode: clean.fusion,
+    seed: clean.seed,
+  };
+}
+
+function paramsToExperiment(params = {}) {
+  return sanitizeExperiment({
+    window: params.window ?? params.window_size ?? state.experiment.window,
+    flow: params.flow ?? params.flow_index ?? state.experiment.flow,
+    alpha: params.alpha ?? state.experiment.alpha,
+    beta: params.beta ?? state.experiment.beta,
+    fusion: params.fusion ?? params.fusion_mode ?? state.experiment.fusion,
+    seed: params.seed ?? state.experiment.seed,
+  });
+}
+
+function readExperimentControls() {
+  return sanitizeExperiment({
+    window: numberFromControl("#analysis-window-size", state.experiment.window, 50, 25000),
+    flow: $("#analysis-flow-index")?.value ?? $("#flow-index")?.value ?? state.experiment.flow,
+    alpha: numberFromControl("#analysis-alpha", state.experiment.alpha, 0, 1),
+    beta: numberFromControl("#analysis-beta", state.experiment.beta, 0, 1),
+    fusion: $("#analysis-fusion-mode")?.value || state.experiment.fusion || "hard",
+    seed: numberFromControl("#analysis-seed", state.experiment.seed, 0, 2147483647),
+  });
+}
+
+function readAnalysisControls() {
+  return experimentToParams(readExperimentControls());
+}
+
+function commitExperiment(experiment) {
+  state.experiment = sanitizeExperiment(experiment);
+  state.pendingExperiment = { ...state.experiment };
+  state.params = experimentToParams(state.experiment);
+}
+
+function contextFromBackend(context = {}, parameters = {}) {
+  return sanitizeExperiment({
+    window: context.window ?? parameters.window_size ?? parameters.window ?? state.experiment.window,
+    flow: context.flow ?? parameters.flow_index ?? parameters.flow ?? state.experiment.flow,
+    alpha: context.alpha ?? parameters.alpha ?? state.experiment.alpha,
+    beta: context.beta ?? parameters.beta ?? state.experiment.beta,
+    fusion: context.fusion ?? parameters.fusion_mode ?? parameters.fusion ?? state.experiment.fusion,
+    seed: context.seed ?? parameters.seed ?? state.experiment.seed,
+  });
+}
+
 function syncAnalysisControls() {
-  const params = state.params;
+  const params = state.experiment;
   const values = {
-    "#analysis-window-size": params.window_size,
-    "#analysis-flow-index": params.flow_index,
-    "#flow-index": params.flow_index,
+    "#analysis-window-size": params.window,
+    "#analysis-flow-index": params.flow,
+    "#flow-index": params.flow,
     "#analysis-alpha": params.alpha,
     "#analysis-beta": params.beta,
     "#analysis-seed": params.seed,
@@ -126,12 +190,23 @@ function syncAnalysisControls() {
     if (node && String(node.value) !== String(value)) node.value = String(value);
   });
   const fusion = $("#analysis-fusion-mode");
-  if (fusion && fusion.value !== params.fusion_mode) fusion.value = params.fusion_mode;
-  setText("#analysis-param-summary", `window ${params.window_size.toLocaleString()} / flow ${params.flow_index} / alpha ${fmt(params.alpha, 2)} / beta ${fmt(params.beta, 2)} / ${params.fusion_mode} / seed ${params.seed}`);
+  if (fusion && fusion.value !== params.fusion) fusion.value = params.fusion;
+  setText("#analysis-param-summary", contextSummary(params));
+}
+
+function contextSummary(experiment, suffix = "") {
+  const params = sanitizeExperiment(experiment);
+  const hash = state.payload?.parameter_hash ? ` / hash ${state.payload.parameter_hash}` : "";
+  return `window ${params.window.toLocaleString()} / flow ${params.flow} / alpha ${fmt(params.alpha, 2)} / beta ${fmt(params.beta, 2)} / ${params.fusion} / seed ${params.seed}${hash}${suffix}`;
+}
+
+function previewAnalysisControls() {
+  state.pendingExperiment = readExperimentControls();
+  setText("#analysis-param-summary", contextSummary(state.pendingExperiment, " / pending Apply"));
 }
 
 function paramsQuery(extra = {}) {
-  const params = { ...state.params, ...extra };
+  const params = paramsToExperiment(extra);
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => query.set(key, value));
   return query.toString();
@@ -140,27 +215,26 @@ function paramsQuery(extra = {}) {
 function scheduleDashboardRefresh(delay = 260) {
   window.clearTimeout(state.refreshTimer);
   state.refreshTimer = window.setTimeout(() => {
-    state.params = readAnalysisControls();
-    syncAnalysisControls();
-    loadDashboard();
+    previewAnalysisControls();
   }, delay);
 }
 
 function setupControls() {
   $("#btn-refresh")?.addEventListener("click", () => {
-    state.params = readAnalysisControls();
+    commitExperiment(readExperimentControls());
     syncAnalysisControls();
     loadDashboard();
   });
   $("#btn-run-all")?.addEventListener("click", runAll);
   $("#btn-export-charts")?.addEventListener("click", exportCharts);
   $("#btn-apply-analysis")?.addEventListener("click", () => {
-    state.params = readAnalysisControls();
+    commitExperiment(readExperimentControls());
     syncAnalysisControls();
     loadDashboard();
   });
   $$(".analysis-control").forEach((control) => {
-    control.addEventListener("change", () => scheduleDashboardRefresh(80));
+    control.addEventListener("input", () => scheduleDashboardRefresh(40));
+    control.addEventListener("change", () => scheduleDashboardRefresh(40));
   });
   $("#btn-analyse-flow")?.addEventListener("click", () => {
     const index = Number($("#flow-index")?.value || 0);
@@ -173,51 +247,58 @@ function setupControls() {
     if (input) input.value = String(index);
     loadFlow(index);
   });
+  $("#btn-attack-replay")?.addEventListener("click", () => {
+    state.attackReplay = !state.attackReplay;
+    $("#btn-attack-replay")?.classList.toggle("active", state.attackReplay);
+    if (state.attackReplay) setActiveStage(0);
+  });
   $$(".stage").forEach((button) => {
     button.addEventListener("click", () => {
-      state.activeStage = Number(button.dataset.stage || 0);
-      renderStageText();
-      $$(".stage").forEach((item) => item.classList.toggle("active", item === button));
+      state.attackReplay = false;
+      $("#btn-attack-replay")?.classList.remove("active");
+      setActiveStage(Number(button.dataset.stage || 0));
     });
   });
 }
 
 async function loadDashboard() {
-  state.params = readAnalysisControls();
   syncAnalysisControls();
   const token = state.requestToken + 1;
   state.requestToken = token;
   const query = paramsQuery();
-  setText("#run-all-feedback", "Refreshing charts");
-  const [charts, research, novelty, ablation, artifacts, status, flow] = await Promise.allSettled([
-    fetchJSON(`/api/charts?${query}`),
-    fetchJSON(`/api/research?${query}`),
-    fetchJSON(`/api/novelty?${query}`),
-    fetchJSON(`/api/ablation?${query}`),
-    fetchJSON("/api/research-artifacts"),
-    fetchJSON("/api/backend/status"),
-    fetchJSON(`/api/single-flow?${query}`),
-  ]);
-  if (token !== state.requestToken) return;
-
-  state.charts = charts.status === "fulfilled" ? charts.value : fallbackCharts();
-  state.research = research.status === "fulfilled" ? research.value : fallbackResearch();
-  state.novelty = novelty.status === "fulfilled" ? novelty.value : {};
-  state.ablation = ablation.status === "fulfilled" ? ablation.value : fallbackAblation();
-  state.artifacts = artifacts.status === "fulfilled" ? artifacts.value : {};
-  state.status = status.status === "fulfilled" ? status.value : null;
-  state.maxFlowIndex = Number(state.status?.max_index ?? state.maxFlowIndex);
-  state.flow = flow.status === "fulfilled" ? flow.value : null;
-  state.params = { ...state.params, ...(state.charts?.parameters || state.research?.parameters || {}) };
-  syncAnalysisControls();
-
-  renderDashboard();
-  setText("#run-all-feedback", "Ready");
+  setText("#run-all-feedback", "Applying context");
+  try {
+    const payload = await fetchJSON(`/api/experiment?${query}`);
+    if (token !== state.requestToken) return;
+    const nextHash = payload.parameter_hash || payload.context?.parameter_hash || "";
+    if (state.overview?.live_summary && nextHash && state.previousHash && state.previousHash !== nextHash) {
+      state.previousOverview = state.overview.live_summary;
+    }
+    state.payload = payload;
+    state.overview = payload.overview || null;
+    state.charts = payload.charts || null;
+    state.research = payload.research || null;
+    state.novelty = payload.novelty || null;
+    state.ablation = payload.ablation || null;
+    state.artifacts = payload.artifacts || {};
+    state.status = payload.status || null;
+    state.flow = payload.flow || null;
+    state.maxFlowIndex = Number(state.status?.max_index ?? state.overview?.max_index ?? state.maxFlowIndex);
+    commitExperiment(contextFromBackend(payload.context, payload.parameters));
+    state.previousHash = nextHash;
+    syncAnalysisControls();
+    renderDashboard();
+    setText("#run-all-feedback", payload.cache?.evaluation === "hit" ? "Ready (cached)" : "Ready");
+  } catch (error) {
+    console.error(error);
+    setText("#run-all-feedback", "Refresh failed");
+    setText("#analysis-param-summary", `${contextSummary(state.experiment)} / backend unavailable`);
+  }
 }
 
 async function loadFlow(index) {
   const flowLimit = Math.max(0, Number(state.maxFlowIndex || 0));
-  state.params.flow_index = Math.max(0, Math.min(flowLimit, Math.floor(Number(index) || 0)));
+  commitExperiment({ ...state.experiment, flow: Math.max(0, Math.min(flowLimit, Math.floor(Number(index) || 0))) });
   syncAnalysisControls();
   await loadDashboard();
   return;
@@ -228,7 +309,7 @@ async function loadSingleFlowOnly(index) {
   setText("#warning-copy", `Fetching flow ${index} from the test split.`);
   setText("#run-all-feedback", "Analysing");
   try {
-    state.flow = await fetchJSON(`/api/single-flow?${paramsQuery({ flow_index: index })}`);
+    state.flow = await fetchJSON(`/api/single-flow?${paramsQuery({ flow: index })}`);
     const input = $("#flow-index");
     if (input) input.value = String(state.flow?.index ?? index);
     setText("#run-all-feedback", "Ready");
@@ -245,12 +326,12 @@ async function runAll() {
   const feedback = $("#run-all-feedback");
   if (feedback) feedback.textContent = "Run All starting";
   try {
-    state.params = readAnalysisControls();
+    commitExperiment(readExperimentControls());
     syncAnalysisControls();
     const job = await fetchJSON("/api/run-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.params),
+      body: JSON.stringify(state.experiment),
     });
     const jobId = job.job_id;
     if (!jobId) {
@@ -291,18 +372,55 @@ function renderDashboard() {
 }
 
 function renderMetrics() {
+  const summary = state.overview?.live_summary || {};
+  const previous = state.previousOverview || null;
   const metric = state.charts?.metric_comparison || {};
   const labels = metric.labels || ["Accuracy", "Precision", "Recall", "F1"];
   const f1Index = Math.max(0, labels.findIndex((label) => String(label).toLowerCase().includes("f1")));
-  const proposedF1 = metric.proposed?.[f1Index];
-  const unknownRate = state.research?.rule_analytics?.unknown_rejection_rate;
+  const proposedF1 = summary.proposed_f1 ?? metric.proposed?.[f1Index];
+  const unknownRate = summary.unknown_detection_rate ?? state.research?.rule_analytics?.unknown_rejection_rate;
   const analysed = Number(state.research?.defense?.analysed_flows || state.research?.limit || 0);
   const attacks = Number(state.research?.defense?.attack_flows || 0);
+  const attackRate = summary.attack_rate ?? (analysed ? attacks / analysed : 0);
 
-  setText("#metric-total-flows", analysed ? analysed.toLocaleString() : "--");
-  setText("#metric-attack-rate", pct(analysed ? attacks / analysed : 0));
+  setText("#metric-total-flows", (summary.total_flows || analysed) ? Number(summary.total_flows || analysed).toLocaleString() : "--");
+  setText("#metric-attack-rate", pct(attackRate));
   setText("#metric-unknown", pct(unknownRate || 0));
   setText("#metric-f1-score", pct(proposedF1 || 0));
+  setText("#metric-total-trend", `hash ${state.payload?.parameter_hash || "--"}`);
+  setText("#metric-attack-trend", trendPhrase(attackRate, previous?.attack_rate, "pp"));
+  setText("#metric-unknown-trend", `${trendPhrase(unknownRate || 0, previous?.unknown_detection_rate, "pp")} / ${summary.unknown_detection_count ?? "--"} flows`);
+  setText("#metric-f1-trend", trendPhrase(proposedF1 || 0, previous?.proposed_f1, "pp"));
+  setText("#research-story-copy", researchStoryText());
+}
+
+function trendPhrase(current, previous, unit = "pp") {
+  const now = Number(current);
+  const before = Number(previous);
+  if (!Number.isFinite(now) || !Number.isFinite(before)) return "first applied context";
+  const delta = now - before;
+  if (Math.abs(delta) < 0.0005) return "unchanged vs previous Apply";
+  const arrow = delta > 0 ? "up" : "down";
+  const value = unit === "pp" ? `${Math.abs(delta * 100).toFixed(2)} pp` : fmt(Math.abs(delta), 3);
+  return `${arrow} ${value} vs previous Apply`;
+}
+
+function researchStoryText() {
+  const accuracy = metricDelta("Accuracy");
+  const f1 = metricDelta("F1");
+  const analytics = state.research?.rule_analytics || {};
+  const flow = state.flow || {};
+  const wins = [
+    accuracy && accuracy.delta > 0.0005 ? `accuracy +${(accuracy.delta * 100).toFixed(2)} pp` : null,
+    f1 && f1.delta > 0.0005 ? `F1 +${(f1.delta * 100).toFixed(2)} pp` : null,
+    Number(analytics.binary_attack_recall_delta || 0) > 0.0005 ? `attack recall +${((analytics.binary_attack_recall_delta || 0) * 100).toFixed(2)} pp` : null,
+  ].filter(Boolean);
+  const evidence = [
+    `${pct(analytics.unknown_rejection_rate || 0, 1)} UNKNOWN review`,
+    `${pct(analytics.rule_trigger_rate || 0, 1)} rule evidence coverage`,
+    flow.defense?.action || "adaptive defense recommendation",
+  ];
+  return `${wins.length ? `Proposed outperforms baseline on ${wins.join(", ")}.` : "This applied window shows the proposed/baseline tradeoff without hiding regressions."} Uncertainty rejection, symbolic evidence, and defense action remain visible: ${evidence.join("; ")}.`;
 }
 
 function renderAllCharts() {
@@ -311,7 +429,7 @@ function renderAllCharts() {
   const trend = state.charts?.improvement_curve || {};
   const perClass = state.charts?.per_class || {};
   const confidence = state.charts?.confidence_histogram || {};
-  const ablation = state.ablation || fallbackAblation();
+  const ablation = state.ablation || {};
 
   drawRobustnessBars("robustnessChart", rows);
   drawRobustnessBars("comparisonChart", rows);
@@ -479,6 +597,8 @@ async function exportCharts() {
         exported_from: window.location.href,
         export_scale: 3,
         figure_source: "current live backend payload",
+        context: state.experiment,
+        parameter_hash: state.payload?.parameter_hash || null,
       },
       charts: canvases.map(([name, canvas]) => ({ name, image: highResCanvasDataURL(canvas, 3) })),
     }),
@@ -626,11 +746,15 @@ function setupCanvas(id) {
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
   if (rect.width < 20 || rect.height < 20) return null;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
   canvas.width = Math.max(1, Math.floor(rect.width * dpr));
   canvas.height = Math.max(1, Math.floor(rect.height * dpr));
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   ctx.clearRect(0, 0, rect.width, rect.height);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, rect.width, rect.height);
@@ -664,8 +788,12 @@ function drawGroupedBars(id, labels, series, options = {}) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels.length ? labels : ["Accuracy", "Precision", "Recall", "F1"];
-  const numericValues = series.flatMap((item) => item.values.map(Number).filter(Number.isFinite));
+  const numericValues = series.flatMap((item) => (item.values || []).map(Number).filter(Number.isFinite));
+  if (!labels.length || !series.length || !numericValues.length) {
+    drawNoData(ctx, width, height, "Chart data unavailable for this context");
+    return;
+  }
+  const cleanLabels = labels;
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...numericValues);
   const plot = { left: 58, right: width - 22, top: 42, bottom: height - (options.slanted ? 86 : 66) };
   plot.width = plot.right - plot.left;
@@ -703,7 +831,11 @@ function drawBars(id, labels, values, options = {}) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels.length ? labels : ["No data"];
+  if (!labels.length || !values.length) {
+    drawNoData(ctx, width, height, "Chart data unavailable for this context");
+    return;
+  }
+  const cleanLabels = labels;
   const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...cleanValues);
   const plot = { left: 54, right: width - 18, top: 24, bottom: height - 68 };
@@ -733,6 +865,10 @@ function drawDualMetricBars(id, latency, throughput) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
+  if (!latency?.values?.length || !throughput?.values?.length) {
+    drawNoData(ctx, width, height, "Latency and throughput unavailable");
+    return;
+  }
   const labels = latency?.labels || ["Baseline", "Proposed"];
   const latValues = labels.map((_, index) => Number(latency?.values?.[index] || 0));
   const thrValues = labels.map((_, index) => Number(throughput?.values?.[index] || 0));
@@ -811,7 +947,12 @@ function drawMetricProfile(id, labels, series, options = {}) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels.length ? labels : ["Accuracy", "Precision", "Recall", "F1"];
+  const numericValues = series.flatMap((item) => (item.values || []).map(Number).filter(Number.isFinite));
+  if (!labels.length || !series.length || !numericValues.length) {
+    drawNoData(ctx, width, height, "Metric trend unavailable for this context");
+    return;
+  }
+  const cleanLabels = labels;
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : 1;
   const plot = chartPlot(width, height, 54, 24, 30, 62);
   drawAxes(ctx, width, height, plot, maxValue);
@@ -838,7 +979,11 @@ function drawAreaLine(id, labels, values, options = {}) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels.length ? labels : ["A", "B", "C", "D"];
+  if (!labels.length || !values.length) {
+    drawNoData(ctx, width, height, "Probability data unavailable for this context");
+    return;
+  }
+  const cleanLabels = labels;
   const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : Math.max(0.01, ...cleanValues);
   const plot = chartPlot(width, height, 54, 22, 28, 70);
@@ -888,9 +1033,9 @@ function drawRocCurve(id, roc) {
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.setLineDash([5, 4]);
-  drawSmoothLine(ctx, baseline.length ? baseline : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 1, 0.82, 0, 1, 0, 1)], palette.baseline, 2.4);
+  drawSmoothLine(ctx, baseline, palette.baseline, 2.4);
   ctx.setLineDash([]);
-  drawSmoothLine(ctx, proposed.length ? proposed : [scalePoint(plot, 0, 0, 0, 1, 0, 1), scalePoint(plot, 0.18, 0.74, 0, 1, 0, 1), scalePoint(plot, 1, 1, 0, 1, 0, 1)], palette.proposed, 4);
+  drawSmoothLine(ctx, proposed, palette.proposed, 4);
   drawLegend(ctx, [
     { name: `DNN baseline AUC ${fmt(roc.baseline?.auc, 2)}`, color: palette.baseline },
     { name: `Proposed AUC ${fmt(roc.proposed?.auc ?? roc.auc, 2)}`, color: palette.proposed },
@@ -1149,6 +1294,16 @@ function drawReliabilityCurve(id, bins) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
+  const points = (bins || [])
+    .filter((bin) => Number(bin.count || 0) > 0)
+    .map((bin) => Number.isFinite(Number(bin.confidence)) && Number.isFinite(Number(bin.accuracy))
+      ? { confidence: Number(bin.confidence), accuracy: Number(bin.accuracy) }
+      : null)
+    .filter(Boolean);
+  if (!points.length) {
+    drawNoData(ctx, width, height, "Calibration bins unavailable for this context");
+    return;
+  }
   const plot = chartPlot(width, height, 54, 22, 28, 54);
   drawAxes(ctx, width, height, plot, 1);
   ctx.strokeStyle = "#c8d2da";
@@ -1158,11 +1313,9 @@ function drawReliabilityCurve(id, bins) {
   ctx.lineTo(plot.right, plot.top);
   ctx.stroke();
   ctx.setLineDash([]);
-  const points = (bins || [])
-    .filter((bin) => Number(bin.count || 0) > 0)
-    .map((bin) => scalePoint(plot, Number(bin.confidence), Number(bin.accuracy), 0, 1, 0, 1));
-  drawSmoothLine(ctx, points.length ? points : [scalePoint(plot, 0.35, 0.22, 0, 1, 0, 1), scalePoint(plot, 0.7, 0.66, 0, 1, 0, 1), scalePoint(plot, 0.95, 0.92, 0, 1, 0, 1)], palette.teal, 3);
-  points.forEach((point) => drawPoint(ctx, point, palette.teal, 4));
+  const scaled = points.map((bin) => scalePoint(plot, bin.confidence, bin.accuracy, 0, 1, 0, 1));
+  drawSmoothLine(ctx, scaled, palette.teal, 3);
+  scaled.forEach((point) => drawPoint(ctx, point, palette.teal, 4));
   drawLegend(ctx, [
     { name: "Ideal", color: "#c8d2da" },
     { name: "Observed", color: palette.teal },
@@ -1183,7 +1336,11 @@ function drawProbabilityCurve(id, labels, values) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels.length ? labels : ["Class A", "Class B", "Class C"];
+  if (!labels.length || !values.length) {
+    drawNoData(ctx, width, height, "Class probabilities unavailable");
+    return;
+  }
+  const cleanLabels = labels;
   const cleanValues = cleanLabels.map((_, index) => Number(values[index] || 0));
   drawAreaLine(id, cleanLabels, cleanValues, {
     color: palette.blue,
@@ -1196,6 +1353,10 @@ function drawRobustnessBars(id, rows) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
+  if (!rows.length) {
+    drawNoData(ctx, width, height, "Robustness data unavailable for this context");
+    return;
+  }
   const plot = { left: Math.min(192, Math.max(128, width * 0.28)), right: width - 36, top: 30, bottom: height - 30 };
   plot.width = plot.right - plot.left;
   const rowHeight = Math.max(36, (plot.bottom - plot.top) / Math.max(1, rows.length));
@@ -1367,7 +1528,7 @@ function renderPublicationNotes() {
   if (repro) {
     repro.innerHTML = [
       `Parameters: window=${params.window_size || state.research?.limit || "--"}, alpha=${fmt(params.alpha, 2)}, beta=${fmt(params.beta, 2)}, fusion=${params.fusion_mode || "--"}, seed=${params.seed ?? "--"}.`,
-      "Model and processed test data are loaded by backend/nids_engine.py; charts are recomputed through /api/charts and /api/research.",
+      "Model and processed test data are loaded by backend/nids_engine.py; Overview, Charts, Cyber Defence, and 3D System consume /api/experiment.",
       "Export Charts writes PNG files plus a manifest under results/dashboard_chart_exports.",
       "Run All persists a stage-level audit summary under runs/last_run.json.",
     ].map((item) => `<li>${item}</li>`).join("");
@@ -1387,85 +1548,61 @@ function summaryPill(title, value, detail) {
   return `<article class="summary-pill"><span>${title}</span><strong>${value}</strong><small>${detail}</small></article>`;
 }
 
-function fallbackCharts() {
-  return {
-    metric_comparison: { labels: ["Accuracy", "Precision", "Recall", "F1"], existing: [0.54, 0.52, 0.54, 0.50], proposed: [0.82, 0.83, 0.82, 0.82] },
-    per_class: { labels: ["Benign", "DoS/DDoS", "Scanning", "Injection"], existing_f1: [0.60, 0.55, 0.49, 0.38], proposed_f1: [0.86, 0.88, 0.80, 0.76] },
-    detection_counts: { labels: ["True attacks", "Baseline detected", "Proposed detected", "Containment"], values: [430, 392, 414, 384] },
-  };
-}
-
-function fallbackAblation() {
-  return {
-    labels: ["Accuracy", "Precision", "Recall", "F1"],
-    systems: [
-      { name: "Legacy baseline", metrics: [0.54, 0.52, 0.54, 0.50] },
-      { name: "Neuro-symbolic", metrics: [0.82, 0.83, 0.82, 0.82] },
-    ],
-    delta: [0.28, 0.31, 0.28, 0.32],
-  };
-}
-
-function fallbackResearch() {
-  return {
-    classes: ["Benign", "DoS/DDoS", "Scanning"],
-    evaluation_labels: ["Benign", "DoS/DDoS", "Scanning"],
-    confusion_matrix: [[70, 3, 2], [4, 38, 3], [2, 5, 31]],
-    rule_analytics: { unknown_rejection_rate: 0.04 },
-  };
-}
-
 const stageTexts = [
   {
-    title: "NetFlow input",
-    copy: "Structured flow vectors enter with bytes, packets, protocol, flags, duration, and service evidence.",
+    title: "Input Flow",
+    copy: "The selected flow enters the evaluation window with the same window, seed, fusion, alpha, and beta used by every chart.",
     detail: "The active path begins at the telemetry plane.",
     node: 0,
     path: 0,
+    camera: [-10, 6.5, 18],
+    lookAt: [-5.5, 0.2, 0],
   },
   {
-    title: "DNN inference",
+    title: "Neural Inference",
     copy: "The neural model projects each flow into calibrated class probabilities instead of a single brittle label.",
     detail: "The baseline bypass is visible below the proposed path.",
     node: 1,
     path: 1,
+    camera: [-7, 6.4, 15],
+    lookAt: [-4.8, 0.8, 0],
   },
   {
-    title: "UNKNOWN rejection",
+    title: "Unknown Rejection",
     copy: "Confidence, margin, and entropy gates route uncertain traffic to review before it can be over-labelled.",
     detail: "Rejected traffic branches away from forced closed-set decisions.",
     node: 2,
     path: 2,
+    camera: [-1.5, 7.2, 14],
+    lookAt: [0, 0.15, 0.65],
   },
   {
-    title: "Symbolic rules",
+    title: "Symbolic Rules",
     copy: "Accepted flows pass through auditable rules that can rescue attack evidence missed by the neural score.",
     detail: "The lattice pulses when rule evidence is active.",
     node: 3,
     path: 3,
+    camera: [3.7, 6.2, 14],
+    lookAt: [4.8, 1.15, -0.35],
   },
   {
-    title: "Defense action",
+    title: "Explainability",
+    copy: "Feature attribution, rule traces, and calibrated probability evidence make the final decision inspectable.",
+    detail: "The evidence satellite highlights why the proposed path is reviewable.",
+    node: 3,
+    path: 3,
+    feature: true,
+    camera: [4.5, 8.2, 16],
+    lookAt: [4.8, 2.2, 0.4],
+  },
+  {
+    title: "Defense Action",
     copy: "The final decision becomes severity, containment guidance, and an analyst-ready playbook.",
     detail: "The response mesh closes the detection-to-action loop.",
     node: 4,
     path: 4,
-  },
-  {
-    title: "Calibration",
-    copy: "Temperature scaling and reliability bins keep probability scores usable for thresholds and publication figures.",
-    detail: "The calibration satellite anchors the DNN and UNKNOWN gate.",
-    node: 1,
-    path: 2,
-    feature: true,
-  },
-  {
-    title: "Ablation",
-    copy: "Backend ablations isolate baseline, neuro-symbolic fusion, confidence gating, and the final proposed stack.",
-    detail: "The evidence satellite highlights the measured contribution of each layer.",
-    node: 3,
-    path: 3,
-    feature: true,
+    camera: [9.5, 6.2, 15],
+    lookAt: [9.2, 0, 0],
   },
   {
     title: "Robustness",
@@ -1474,15 +1611,69 @@ const stageTexts = [
     node: 4,
     path: 4,
     feature: true,
+    camera: [7.5, 8.4, 20],
+    lookAt: [4.5, 0.6, 0],
+  },
+  {
+    title: "Ablation",
+    copy: "Backend ablations isolate baseline, neuro-symbolic fusion, confidence gating, and the final proposed stack.",
+    detail: "The evidence satellite highlights the measured contribution of each layer.",
+    node: 3,
+    path: 3,
+    feature: true,
+    camera: [2.5, 9.2, 20],
+    lookAt: [2.8, 1.2, 0],
   },
 ];
+
+function setActiveStage(index) {
+  state.activeStage = Math.max(0, Math.min(stageTexts.length - 1, Math.floor(Number(index) || 0)));
+  $$(".stage").forEach((item) => item.classList.toggle("active", Number(item.dataset.stage || 0) === state.activeStage));
+  renderStageText();
+}
 
 function renderStageText() {
   const stage = stageTexts[state.activeStage] || stageTexts[0];
   const note = $("#stage-note");
   if (note) {
-    note.innerHTML = `<strong>${stage.title}</strong><span>${stage.copy}</span><small>${stage.detail}</small>`;
+    note.innerHTML = `<strong>${stage.title}</strong><span>${stage.copy}</span><small>${stage.detail} ${dynamicStageDetail(stage)}</small>`;
   }
+  renderArchitectureMetrics();
+}
+
+function dynamicStageDetail(stage) {
+  const flow = state.flow || {};
+  const analytics = state.research?.rule_analytics || {};
+  const action = flow.defense?.action || "No defense action loaded yet.";
+  const applied = (flow.fired_rules || []).filter((rule) => rule.rule_id && rule.rule_id !== "NONE" && rule.applied).length;
+  const triggered = analytics.rule_trigger_count ?? (flow.fired_rules || []).filter((rule) => rule.rule_id && rule.rule_id !== "NONE").length;
+  if (stage.title === "Input Flow") return `Flow #${state.experiment.flow}, window ${state.experiment.window}, seed ${state.experiment.seed}.`;
+  if (stage.title === "Neural Inference") return `Neural label ${flow.neural_pred || "--"} at confidence ${fmt(flow.confidence, 3)}.`;
+  if (stage.title === "Unknown Rejection") return `Entropy ${fmt(flow.entropy, 3)}, margin ${fmt(flow.margin, 3)}, tau ${fmt(flow.unknown_threshold, 2)}.`;
+  if (stage.title === "Symbolic Rules") return `${triggered} rules triggered in-window; ${applied} applied on this flow.`;
+  if (stage.title === "Explainability") return flow.explanation || "Feature attribution and rule traces update after Apply.";
+  if (stage.title === "Defense Action") return action;
+  if (stage.title === "Robustness") return `Attack recall delta ${pct(analytics.binary_attack_recall_delta || 0, 1)}, UNKNOWN review ${pct(analytics.unknown_rejection_rate || 0, 1)}.`;
+  if (stage.title === "Ablation") return `${(state.ablation?.systems || []).map((system) => system.name).join(" vs ") || "Ablation loading"}.`;
+  return "";
+}
+
+function renderArchitectureMetrics() {
+  const metrics = $("#architecture-metrics");
+  if (!metrics) return;
+  const flow = state.flow || {};
+  const analytics = state.research?.rule_analytics || {};
+  const ruleCount = (flow.fired_rules || []).filter((rule) => rule.rule_id && rule.rule_id !== "NONE").length;
+  metrics.innerHTML = [
+    architectureMetric("Final Decision", flow.final_label || "--", flow.rejected_unknown ? "UNKNOWN review gate" : flow.defense?.level || "awaiting flow"),
+    architectureMetric("Confidence", fmt(flow.confidence, 3), `entropy ${fmt(flow.entropy, 3)}`),
+    architectureMetric("Rules Triggered", `${ruleCount}`, `${pct(analytics.rule_trigger_rate || 0, 1)} window coverage`),
+    architectureMetric("Defense", flow.defense?.level || "--", flow.defense?.action || "apply context"),
+  ].join("");
+}
+
+function architectureMetric(title, value, detail) {
+  return `<article><span>${title}</span><strong>${value}</strong><small>${detail}</small></article>`;
 }
 
 function initThree() {
@@ -1498,8 +1689,12 @@ function initThree() {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 140);
   camera.position.set(0, 10, 23);
   camera.lookAt(0, 0.2, 0);
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+  renderer.setClearColor(0x0b1118, 1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
 
   const ambient = new THREE.AmbientLight(0xd9f6ff, 0.65);
   const key = new THREE.DirectionalLight(0xffffff, 1.25);
@@ -1657,9 +1852,9 @@ function initThree() {
   }
 
   const featureSpecs = [
-    { stage: 5, label: "Calibration", color: 0xf0b34a, node: 1, offset: new THREE.Vector3(0.0, 3.25, 1.45) },
-    { stage: 6, label: "Ablation", color: 0x9ed66f, node: 3, offset: new THREE.Vector3(0.0, 3.25, 1.45) },
-    { stage: 7, label: "Robustness", color: 0x9ab7ff, node: 4, offset: new THREE.Vector3(-0.55, 2.85, 1.85) },
+    { stage: 4, label: "Explainability", color: 0xf0b34a, node: 3, offset: new THREE.Vector3(0.0, 3.25, 1.45) },
+    { stage: 6, label: "Robustness", color: 0x9ab7ff, node: 4, offset: new THREE.Vector3(-0.55, 2.85, 1.85) },
+    { stage: 7, label: "Ablation", color: 0x9ed66f, node: 3, offset: new THREE.Vector3(0.75, 3.05, -1.65) },
   ];
   const featureMarkers = [];
   const featureConnectors = [];
@@ -1743,7 +1938,24 @@ function initThree() {
   function animate(time) {
     requestAnimationFrame(animate);
     const seconds = time * 0.001;
+    if (state.attackReplay) {
+      const nextStage = Math.floor((seconds * 0.75) % stageTexts.length);
+      if (nextStage !== state.replayStage) {
+        state.replayStage = nextStage;
+        setActiveStage(nextStage);
+      }
+    } else {
+      state.replayStage = -1;
+    }
     const active = stageTexts[state.activeStage] || stageTexts[0];
+    const mobile = renderer.domElement.clientWidth < 640;
+    const cameraTarget = new THREE.Vector3(...(active.camera || [0, 10, 23]));
+    if (mobile) {
+      cameraTarget.y += 2.5;
+      cameraTarget.z += 9;
+    }
+    camera.position.lerp(cameraTarget, 0.045);
+    camera.lookAt(new THREE.Vector3(...(active.lookAt || [0, 0.2, 0])));
     group.rotation.y = Math.sin(time * 0.00018) * 0.10;
     particles.rotation.y += 0.0008;
     group.children.forEach((child, index) => {
@@ -1776,12 +1988,12 @@ function initThree() {
     proposedTube.material.opacity = 0.16 + active.path * 0.055;
     baselineTube.material.opacity = state.activeStage === 1 ? 0.58 : 0.24;
     proposedPackets.forEach((packet) => {
-      const t = (time * 0.00013 + packet.userData.offset) % 1;
+      const t = (time * (state.attackReplay ? 0.00032 : 0.00013) + packet.userData.offset) % 1;
       packet.position.copy(proposedCurve.getPointAt(t));
       packet.position.y += Math.sin(seconds * 4 + t * 8) * 0.1;
     });
     baselinePackets.forEach((packet) => {
-      const t = (time * 0.00008 + packet.userData.offset) % 1;
+      const t = (time * (state.attackReplay ? 0.00018 : 0.00008) + packet.userData.offset) % 1;
       packet.position.copy(baselineCurve.getPointAt(t));
       packet.position.y += Math.sin(seconds * 3 + t * 6) * 0.05;
     });
@@ -1802,22 +2014,26 @@ function makePackets(count, color, emissive, curve, radius) {
 
 function makeTextSprite(text, color) {
   const canvas = document.createElement("canvas");
-  canvas.width = 384;
-  canvas.height = 112;
+  canvas.width = 768;
+  canvas.height = 224;
   const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "rgba(8, 14, 22, 0.72)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = "#d6ffff";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
   ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
-  ctx.fillRect(0, canvas.height - 8, canvas.width, 8);
+  ctx.fillRect(0, canvas.height - 16, canvas.width, 16);
   ctx.fillStyle = "#ffffff";
-  ctx.font = "800 38px Inter, Arial, sans-serif";
+  ctx.font = "800 72px Inter, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 4);
   const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.94 }));
   sprite.scale.set(2.25, 0.66, 1);
   return sprite;
@@ -1829,11 +2045,18 @@ function resizeThree() {
   const canvas = renderer.domElement;
   const width = canvas.clientWidth || 1000;
   const height = canvas.clientHeight || 560;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.fov = width < 640 ? 60 : 42;
-  camera.position.set(0, width < 640 ? 8 : 10, width < 640 ? 32 : 23);
-  camera.lookAt(0, 0.2, 0);
+  const active = stageTexts[state.activeStage] || stageTexts[0];
+  const target = [...(active.camera || [0, 10, 23])];
+  if (width < 640) {
+    target[1] += 2.5;
+    target[2] += 9;
+  }
+  camera.position.set(...target);
+  camera.lookAt(new THREE.Vector3(...(active.lookAt || [0, 0.2, 0])));
   camera.updateProjectionMatrix();
 }
 

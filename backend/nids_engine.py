@@ -17,7 +17,7 @@ from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.metrics import auc, average_precision_score, classification_report, confusion_matrix, precision_recall_curve, recall_score, roc_curve
 from sklearn.preprocessing import label_binarize
 
-from src.neuro_symbolic import apply_symbolic_rules, apply_symbolic_rules_batch, build_symbolic_context
+from src.neuro_symbolic import apply_symbolic_rules_batch, build_symbolic_context
 from src.publication_protocol import apply_temperature, fit_temperature, validation_split
 from src.project_paths import (
     METRICS_PATH,
@@ -2035,14 +2035,7 @@ def chart_data(
                 },
                 {
                     "system": "Calibrated neural model",
-                    "metrics": ablation_data(
-                        config.window_size,
-                        flow_index=config.flow_index,
-                        alpha=config.alpha,
-                        beta=config.beta,
-                        fusion_mode=config.fusion_mode,
-                        seed=config.seed,
-                    )["closed_set_exact"]["neural_calibrated"],
+                    "metrics": evaluated["closed_set_neural"],
                     "source": "current backend proposed model before symbolic fusion",
                 },
                 {

@@ -74,15 +74,15 @@
           </div>
           <div class="hero-verdict">
             <span>Research contribution</span>
-            <strong>Known attacks are detected; low-confidence traffic is rejected as unknown before rule fusion.</strong>
+            <strong id="research-story-copy">Apply an experiment context to compare baseline, uncertainty rejection, symbolic evidence, and defense action.</strong>
           </div>
         </div>
 
         <div class="metric-strip">
-          <article><span>Total Flows</span><strong id="metric-total-flows">--</strong><small>live evaluation window</small></article>
-          <article><span>Attack Rate</span><strong id="metric-attack-rate">--</strong><small>labelled traffic pressure</small></article>
-          <article><span>Unknown Threats Detected</span><strong id="metric-unknown">--</strong><small>confidence rejection</small></article>
-          <article><span>F1 Score</span><strong id="metric-f1-score">--</strong><small>proposed test performance</small></article>
+          <article><span>Total Flows</span><strong id="metric-total-flows">--</strong><small id="metric-total-trend">waiting for context</small></article>
+          <article><span>Attack Rate</span><strong id="metric-attack-rate">--</strong><small id="metric-attack-trend">waiting for context</small></article>
+          <article><span>Unknown Threats Detected</span><strong id="metric-unknown">--</strong><small id="metric-unknown-trend">waiting for context</small></article>
+          <article><span>F1 Score</span><strong id="metric-f1-score">--</strong><small id="metric-f1-trend">waiting for context</small></article>
         </div>
 
         <div class="overview-grid">
@@ -377,15 +377,17 @@
             <span><i class="legend-baseline"></i>DNN-only baseline</span>
             <span><i class="legend-gate"></i>UNKNOWN rejection gate</span>
           </div>
+          <button id="btn-attack-replay" class="replay-button" type="button">Attack Replay</button>
+          <div class="architecture-metrics" id="architecture-metrics"></div>
           <div class="stage-labels">
-            <button class="stage stage-card active" data-stage="0"><span>Input</span><strong>NetFlow</strong></button>
-            <button class="stage stage-card" data-stage="1"><span>Inference</span><strong>DNN</strong></button>
-            <button class="stage stage-card" data-stage="2"><span>Abstain</span><strong>UNKNOWN</strong></button>
-            <button class="stage stage-card" data-stage="3"><span>Explain</span><strong>Rules</strong></button>
-            <button class="stage stage-card" data-stage="4"><span>Respond</span><strong>Defence</strong></button>
-            <button class="stage stage-card" data-stage="5"><span>Reliability</span><strong>Calibration</strong></button>
-            <button class="stage stage-card" data-stage="6"><span>Evidence</span><strong>Ablation</strong></button>
-            <button class="stage stage-card" data-stage="7"><span>Stress</span><strong>Robustness</strong></button>
+            <button class="stage stage-card active" data-stage="0"><span>Stage 1</span><strong>Input Flow</strong></button>
+            <button class="stage stage-card" data-stage="1"><span>Stage 2</span><strong>Neural Inference</strong></button>
+            <button class="stage stage-card" data-stage="2"><span>Stage 3</span><strong>Unknown Rejection</strong></button>
+            <button class="stage stage-card" data-stage="3"><span>Stage 4</span><strong>Symbolic Rules</strong></button>
+            <button class="stage stage-card" data-stage="4"><span>Stage 5</span><strong>Explainability</strong></button>
+            <button class="stage stage-card" data-stage="5"><span>Stage 6</span><strong>Defense Action</strong></button>
+            <button class="stage stage-card" data-stage="6"><span>Stage 7</span><strong>Robustness</strong></button>
+            <button class="stage stage-card" data-stage="7"><span>Stage 8</span><strong>Ablation</strong></button>
           </div>
           <div class="stage-note" id="stage-note">
             <strong>NetFlow feature stream</strong>
