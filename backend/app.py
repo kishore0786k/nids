@@ -234,14 +234,17 @@ def api_novelty():
         min(0.40, max(0.01, params["alpha"])),
         flow_index=params["flow_index"],
         seed=params["seed"],
+        beta=params["beta"],
+        fusion_mode=params["fusion_mode"],
     ))
 
 
 @app.route("/api/publication-readiness")
 def api_publication_readiness():
     params = _eval_params(1000)
-    charts = engine.chart_data(**params)
-    research = engine.analyse_window(**params)
+    experiment = engine.experiment_payload(**params)
+    charts = experiment.get("charts", {})
+    research = experiment.get("research", {})
     return jsonify({
         "parameters": charts.get("parameters", {}),
         "novelty_statement": (
@@ -249,9 +252,11 @@ def api_publication_readiness():
             "and adaptive confidence/margin/entropy rejection for UNKNOWN attack review."
         ),
         "metric_comparison": charts.get("metric_comparison", {}),
-        "ablation": engine.ablation_data(**params),
+        "ablation": experiment.get("ablation", {}),
         "statistical_validation": charts.get("statistical_validation", research.get("statistical_validation", {})),
         "common_baseline_comparison": charts.get("common_baseline_comparison", {}),
+        "open_set_evaluation": charts.get("open_set_evaluation", {}),
+        "robustness_detail": charts.get("robustness_detail", {}),
         "cross_dataset_validation": engine.backend_status().get("evidence_separation", {}),
         "export_ready": {
             "dashboard_png_endpoint": "/api/export-charts",

@@ -233,9 +233,7 @@ def _feature_extract(context: dict[str, Any]) -> dict[str, Any]:
 
 def _predict(context: dict[str, Any]) -> dict[str, Any]:
     params: PipelineParams = context["params"]
-    novelty_alpha = min(0.40, max(0.01, params.alpha))
-    overview = engine.overview_data()
-    research = engine.analyse_window(
+    bundle = engine.experiment_payload(
         window_size=params.window_size,
         flow_index=params.flow_index,
         alpha=params.alpha,
@@ -243,14 +241,11 @@ def _predict(context: dict[str, Any]) -> dict[str, Any]:
         fusion_mode=params.fusion_mode,
         seed=params.seed,
     )
-    novelty = engine.novelty_data(params.window_size, novelty_alpha, flow_index=params.flow_index, seed=params.seed)
-    defense = engine.analyse_defense(
-        params.flow_index,
-        alpha=params.alpha,
-        beta=params.beta,
-        fusion_mode=params.fusion_mode,
-        seed=params.seed,
-    )
+    overview = bundle["overview"]
+    research = bundle["research"]
+    novelty = bundle["novelty"]
+    defense = {"flow": bundle["flow"], "incident": engine.make_incident(bundle["flow"])}
+    context["experiment_payload"] = bundle
     context.update({"overview": overview, "research": research, "novelty": novelty, "defense": defense})
     analytics = research.get("rule_analytics", {})
     return _stage_result(
@@ -282,7 +277,7 @@ def _log(context: dict[str, Any]) -> dict[str, Any]:
 
 def _publication_qa(context: dict[str, Any]) -> dict[str, Any]:
     params: PipelineParams = context["params"]
-    ablation = engine.ablation_data(
+    ablation = (context.get("experiment_payload") or {}).get("ablation") or engine.ablation_data(
         window_size=params.window_size,
         flow_index=params.flow_index,
         alpha=params.alpha,
@@ -321,7 +316,7 @@ def _publication_qa(context: dict[str, Any]) -> dict[str, Any]:
 
 def _visualize(context: dict[str, Any]) -> dict[str, Any]:
     params: PipelineParams = context["params"]
-    charts = engine.chart_data(
+    charts = (context.get("experiment_payload") or {}).get("charts") or engine.chart_data(
         window_size=params.window_size,
         flow_index=params.flow_index,
         alpha=params.alpha,

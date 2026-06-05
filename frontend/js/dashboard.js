@@ -295,9 +295,10 @@ function setupControls() {
   });
   $$(".stage").forEach((button) => {
     button.addEventListener("click", () => {
-      state.attackReplay = false;
-      $("#btn-attack-replay")?.classList.remove("active");
-      setActiveStage(Number(button.dataset.stage || 0));
+      const stage = Number(button.dataset.stage || 0);
+      state.attackReplay = button.dataset.action === "replay";
+      $("#btn-attack-replay")?.classList.toggle("active", state.attackReplay);
+      setActiveStage(stage);
     });
   });
 }
@@ -479,21 +480,26 @@ function renderAllCharts() {
     { name: "Proposed accuracy", values: trend.proposed_accuracy || [], color: palette.proposed },
     { name: "Baseline F1", values: trend.existing_f1 || [], color: palette.amber },
     { name: "Proposed F1", values: trend.proposed_f1 || [], color: palette.green },
-  ], { maxY: 1 });
+  ], { maxY: 1, bands: trend.confidence_band });
   drawGroupedBars("metricComparisonChart", metric.labels || [], [
     { name: "Existing", values: metric.existing || [], color: palette.baseline },
     { name: "Proposed", values: metric.proposed || [], color: palette.proposed },
-  ], { maxY: 1 });
+  ], { maxY: 1, deltaLabels: true });
   drawGroupedBars("perClassF1Chart", perClass.labels || [], [
     { name: "Existing", values: perClass.existing_f1 || [], color: palette.baseline },
     { name: "Proposed", values: perClass.proposed_f1 || [], color: palette.proposed },
-  ], { maxY: 1, slanted: true });
-  drawConfusionMatrixCanvas("confusionMatrixChart", state.research?.evaluation_labels || state.research?.classes || [], state.research?.confusion_matrix || []);
+  ], { maxY: 1, slanted: true, deltaLabels: true });
+  drawConfusionMatrixCanvas(
+    "confusionMatrixChart",
+    state.research?.evaluation_labels || state.research?.classes || [],
+    state.research?.confusion_matrix || [],
+    state.charts?.confusion_matrices || state.research?.confusion_matrices || null
+  );
   drawRocCurve("rocCurveChart", state.charts?.roc_curve || {});
   drawPrCurve("prCurveChart", state.charts?.pr_curve || {});
-  drawBars("confidenceHistogramChart", confidence.labels || [], confidence.values || [], { color: palette.teal });
+  drawConfidenceDistribution("confidenceHistogramChart", confidence);
   drawThresholdRejection("thresholdRejectionChart", confidence, state.research?.rule_analytics || {});
-  drawReliabilityCurve("calibrationChart", state.novelty?.chart_ready?.calibration_bins || state.novelty?.calibration?.bins || []);
+  drawReliabilityCurve("calibrationChart", state.charts?.calibration_curve || state.novelty?.chart_ready?.calibration_bins || state.novelty?.calibration?.bins || []);
   drawGroupedBars("ablationChart", ablation.labels || [], (ablation.systems || []).map((system, index) => ({
     name: system.name,
     values: system.metrics,
@@ -505,15 +511,13 @@ function renderAllCharts() {
     { name: "Proposed", values: gain.proposed || [], color: palette.proposed },
   ], { maxY: 1, slanted: true });
   const unknown = state.charts?.unknown_attack_detection || {};
-  drawGroupedBars("unknownDetectionChart", unknown.labels || [], [
-    { name: "UNKNOWN review rate", values: unknown.values || [], color: palette.coral },
-  ], { maxY: 1 });
+  drawUnknownDetection("unknownDetectionChart", unknown);
   drawDualMetricBars("latencyThroughputChart", state.charts?.latency_comparison || {}, state.charts?.throughput_comparison || {});
   const ruleAnalysis = state.charts?.rule_trigger_analysis || {};
   drawGroupedBars("ruleTriggerChart", ruleAnalysis.labels || [], [
-    { name: "Triggered", values: ruleAnalysis.triggered || [], color: palette.amber },
-    { name: "Applied", values: ruleAnalysis.applied || [], color: palette.teal },
-  ], { slanted: true });
+    { name: "Triggered frequency", values: ruleAnalysis.triggered_frequency || ruleAnalysis.triggered || [], color: palette.amber },
+    { name: "Applied frequency", values: ruleAnalysis.applied_frequency || ruleAnalysis.applied || [], color: palette.teal },
+  ], { maxY: 1, slanted: true });
 
   const probs = state.flow?.probabilities;
   drawProbabilityCurve("probabilityChart", probs?.labels || [], probs?.values || []);
@@ -522,6 +526,18 @@ function renderAllCharts() {
 }
 
 function robustnessRows() {
+  const backendRows = state.charts?.robustness_detail?.rows || [];
+  if (backendRows.length) {
+    return backendRows
+      .filter((row) => Number.isFinite(Number(row.existing)) && Number.isFinite(Number(row.proposed)))
+      .map((row) => ({
+        metric: row.metric,
+        existing: Number(row.existing || 0),
+        proposed: Number(row.proposed || 0),
+        kind: row.unit === "relative" ? "relative" : "higher",
+        source: row.source || "",
+      }));
+  }
   const analytics = state.research?.rule_analytics || {};
   const defense = state.research?.defense || {};
   const metrics = state.research?.window_metrics || {};
@@ -843,6 +859,7 @@ function drawGroupedBars(id, labels, series, options = {}) {
   const groupWidth = plot.width / cleanLabels.length;
   const barWidth = Math.max(4, Math.min(22, (groupWidth - 16) / Math.max(1, series.length)));
   cleanLabels.forEach((label, index) => {
+    const groupValues = series.map((item) => Number(item.values[index] || 0));
     series.forEach((item, sIndex) => {
       const value = Number(item.values[index] || 0);
       const x = plot.left + index * groupWidth + groupWidth / 2 - (barWidth * series.length) / 2 + sIndex * barWidth;
@@ -856,6 +873,14 @@ function drawGroupedBars(id, labels, series, options = {}) {
         ctx.fillText(fmt(value, value >= 0.1 ? 2 : 3), x + (barWidth - 2) / 2, plot.bottom - h - 6);
       }
     });
+    if (options.deltaLabels && series.length >= 2 && groupWidth > 52) {
+      const delta = groupValues[1] - groupValues[0];
+      const labelY = plot.bottom - (Math.max(...groupValues) / maxValue) * plot.height - 22;
+      ctx.fillStyle = delta >= 0 ? palette.green : palette.coral;
+      ctx.font = "800 10px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)} pp`, plot.left + index * groupWidth + groupWidth / 2, Math.max(plot.top + 10, labelY));
+    }
     ctx.save();
     ctx.fillStyle = palette.muted;
     ctx.font = "12px Inter, sans-serif";
@@ -902,6 +927,95 @@ function drawBars(id, labels, values, options = {}) {
   });
 }
 
+function drawConfidenceDistribution(id, histogram = {}) {
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  const labels = histogram.labels || [];
+  const accepted = labels.map((_, index) => Number(histogram.accepted?.[index] ?? histogram.values?.[index] ?? 0));
+  const rejectedAttack = labels.map((_, index) => Number(histogram.rejected_attack?.[index] || 0));
+  const rejectedKnown = labels.map((_, index) => Number(histogram.rejected_known?.[index] || 0));
+  if (!labels.length || !accepted.concat(rejectedAttack, rejectedKnown).some((value) => value > 0)) {
+    drawNoData(ctx, width, height, "Confidence bins unavailable");
+    return;
+  }
+  const totals = labels.map((_, index) => accepted[index] + rejectedAttack[index] + rejectedKnown[index]);
+  const maxValue = Math.max(1, ...totals);
+  const plot = chartPlot(width, height, 58, 22, 30, 76);
+  drawAxes(ctx, width, height, plot, maxValue);
+  const groupWidth = plot.width / labels.length;
+  const barWidth = Math.max(8, Math.min(30, groupWidth * 0.58));
+  labels.forEach((label, index) => {
+    const x = plot.left + index * groupWidth + (groupWidth - barWidth) / 2;
+    let cursor = plot.bottom;
+    [
+      { value: accepted[index], color: palette.teal },
+      { value: rejectedAttack[index], color: palette.coral },
+      { value: rejectedKnown[index], color: palette.amber },
+    ].forEach((segment) => {
+      const h = (segment.value / maxValue) * plot.height;
+      cursor -= h;
+      ctx.fillStyle = segment.color;
+      ctx.fillRect(x, cursor, barWidth, h);
+    });
+    ctx.save();
+    ctx.fillStyle = palette.muted;
+    ctx.font = "11px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.translate(x + barWidth / 2, plot.bottom + 20);
+    ctx.rotate(-0.55);
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  });
+  drawLegend(ctx, [
+    { name: "Accepted", color: palette.teal },
+    { name: "Rejected attack", color: palette.coral },
+    { name: "Rejected known", color: palette.amber },
+  ], plot.left, 13, plot.width);
+}
+
+function drawUnknownDetection(id, unknown = {}) {
+  const labels = unknown.labels || [];
+  const values = unknown.values || [];
+  const counts = unknown.counts || [];
+  const setup = setupCanvas(id);
+  if (!setup) return;
+  const { ctx, width, height } = setup;
+  if (!labels.length || !values.length) {
+    drawNoData(ctx, width, height, "UNKNOWN detection data unavailable");
+    return;
+  }
+  const plot = chartPlot(width, height, 62, 24, 32, 82);
+  drawAxes(ctx, width, height, plot, 1);
+  const groupWidth = plot.width / labels.length;
+  const barWidth = Math.max(12, Math.min(38, groupWidth * 0.42));
+  const colors = [palette.baseline, palette.coral, palette.amber, palette.green];
+  labels.forEach((label, index) => {
+    const value = Number(values[index] || 0);
+    const h = Math.max(0, value * plot.height);
+    const x = plot.left + index * groupWidth + (groupWidth - barWidth) / 2;
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.fillRect(x, plot.bottom - h, barWidth, h);
+    ctx.fillStyle = palette.ink;
+    ctx.font = "800 11px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(pct(value, 0), x + barWidth / 2, plot.bottom - h - 8);
+    if (Number.isFinite(Number(counts[index]))) {
+      ctx.fillStyle = palette.muted;
+      ctx.font = "10px Inter, sans-serif";
+      ctx.fillText(`n=${counts[index]}`, x + barWidth / 2, plot.bottom - h - 22);
+    }
+    ctx.save();
+    ctx.fillStyle = palette.muted;
+    ctx.font = "11px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.translate(x + barWidth / 2, plot.bottom + 18);
+    ctx.rotate(-0.55);
+    ctx.fillText(compactLabel(label, 18), 0, 0);
+    ctx.restore();
+  });
+}
+
 function drawDualMetricBars(id, latency, throughput) {
   const setup = setupCanvas(id);
   if (!setup) return;
@@ -927,6 +1041,11 @@ function drawDualMetricBars(id, latency, throughput) {
     ctx.fillRect(center - barWidth - 3, plot.bottom - lh, barWidth, lh);
     ctx.fillStyle = palette.teal;
     ctx.fillRect(center + 3, plot.bottom - th, barWidth, th);
+    ctx.fillStyle = palette.ink;
+    ctx.font = "800 11px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`${fmt(latValues[index], 3)} ms`, center - barWidth / 2 - 3, plot.bottom - lh - 8);
+    ctx.fillText(`${fmt(thrValues[index], 0)}/s`, center + barWidth / 2 + 3, plot.bottom - th - 8);
     ctx.fillStyle = palette.muted;
     ctx.font = "11px Inter, sans-serif";
     ctx.textAlign = "center";
@@ -997,6 +1116,27 @@ function drawMetricProfile(id, labels, series, options = {}) {
   const maxValue = Number.isFinite(options.maxY) ? options.maxY : 1;
   const plot = chartPlot(width, height, 54, 24, 30, 62);
   drawAxes(ctx, width, height, plot, maxValue);
+  const drawBand = (lowValues, highValues, color) => {
+    if (!lowValues?.length || !highValues?.length || lowValues.length !== cleanLabels.length) return;
+    const upper = cleanLabels.map((_, index) => ({
+      x: cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width,
+      y: plot.bottom - (Number(highValues[index] || 0) / maxValue) * plot.height,
+    }));
+    const lower = cleanLabels.map((_, index) => ({
+      x: cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width,
+      y: plot.bottom - (Number(lowValues[index] || 0) / maxValue) * plot.height,
+    })).reverse();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    upper.concat(lower).forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.closePath();
+    ctx.fill();
+  };
+  drawBand(options.bands?.proposed_accuracy_low, options.bands?.proposed_accuracy_high, "rgba(8, 127, 140, 0.10)");
+  drawBand(options.bands?.proposed_f1_low, options.bands?.proposed_f1_high, "rgba(47, 143, 91, 0.09)");
   series.forEach((item) => {
     const points = cleanLabels.map((_, index) => {
       const x = cleanLabels.length === 1 ? plot.left + plot.width / 2 : plot.left + (index / (cleanLabels.length - 1)) * plot.width;
@@ -1124,68 +1264,102 @@ function drawPrCurve(id, pr) {
   ctx.restore();
 }
 
-function drawConfusionMatrixCanvas(id, labels, matrix) {
+function drawConfusionMatrixCanvas(id, labels, matrix, matrices = null) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const cleanLabels = labels || [];
-  const cleanMatrix = matrix || [];
+  const hasPair = matrices?.baseline?.matrix?.length && matrices?.proposed?.matrix?.length;
+  const cleanLabels = hasPair ? matrices.proposed.labels || labels || [] : labels || [];
+  const cleanMatrix = hasPair ? matrices.proposed.matrix : matrix || [];
   if (!cleanLabels.length || !cleanMatrix.length) {
     drawNoData(ctx, width, height, "Confusion matrix unavailable");
     return;
   }
-  const left = width < 720 ? 86 : 120;
-  const top = 46;
-  const rightPad = 16;
-  const bottomPad = width < 720 ? 100 : 86;
-  const n = cleanLabels.length;
-  const cell = Math.min((width - left - rightPad) / n, (height - top - bottomPad) / n);
-  const gridWidth = cell * n;
-  const maxValue = Math.max(1, ...cleanMatrix.flat().map(Number));
 
-  ctx.fillStyle = palette.muted;
-  ctx.font = "800 12px Inter, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("Predicted label", left + gridWidth / 2, 22);
-  ctx.save();
-  ctx.translate(18, top + gridWidth / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText("True label", 0, 0);
-  ctx.restore();
+  const drawOneMatrix = (title, matrixPayload, bounds, color) => {
+    const matrixValues = matrixPayload.matrix || matrixPayload || [];
+    const localLabels = matrixPayload.labels || cleanLabels;
+    const n = localLabels.length;
+    const cell = Math.min(bounds.width / n, bounds.height / n);
+    const gridWidth = cell * n;
+    const left = bounds.left + (bounds.width - gridWidth) / 2;
+    const top = bounds.top;
+    const maxValue = Math.max(1, ...matrixValues.flat().map(Number));
+    const rowTotals = matrixPayload.row_totals || matrixValues.map((row) => Math.max(1, row.reduce((sum, value) => sum + Number(value || 0), 0)));
 
-  cleanLabels.forEach((label, index) => {
-    const x = left + index * cell + cell / 2;
-    const y = top + index * cell + cell / 2;
-    ctx.fillStyle = palette.muted;
-    ctx.font = "11px Inter, sans-serif";
+    ctx.fillStyle = palette.ink;
+    ctx.font = "800 13px Inter, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(compactLabel(label, width < 720 ? 8 : 11), x, top - 12);
-    ctx.save();
-    ctx.translate(x, top + gridWidth + 18);
-    ctx.rotate(-0.55);
-    ctx.textAlign = "right";
-    ctx.fillText(compactLabel(label, 11), 0, 0);
-    ctx.restore();
-    ctx.textAlign = "right";
-    ctx.fillText(compactLabel(label, width < 720 ? 9 : 13), left - 10, y + 4);
-  });
+    ctx.fillText(title, left + gridWidth / 2, top - 26);
+    ctx.fillStyle = palette.muted;
+    ctx.font = "10px Inter, sans-serif";
+    ctx.fillText("Predicted label", left + gridWidth / 2, top - 10);
 
-  cleanMatrix.forEach((row, rowIndex) => {
-    row.forEach((value, colIndex) => {
-      const count = Number(value || 0);
-      const intensity = Math.max(0.05, Math.min(1, count / maxValue));
-      const x = left + colIndex * cell;
-      const y = top + rowIndex * cell;
-      ctx.fillStyle = `rgba(37, 199, 189, ${0.10 + intensity * 0.82})`;
-      ctx.fillRect(x, y, cell - 1, cell - 1);
-      if (cell > 32 || count > 0) {
-        ctx.fillStyle = intensity > 0.55 ? "#061014" : palette.ink;
-        ctx.font = `${cell < 42 ? "10px" : "800 12px"} Inter, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(String(count), x + cell / 2, y + cell / 2 + 4);
-      }
+    localLabels.forEach((label, index) => {
+      const x = left + index * cell + cell / 2;
+      const y = top + index * cell + cell / 2;
+      ctx.fillStyle = palette.muted;
+      ctx.font = "10px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(compactLabel(label, width < 720 ? 7 : 9), x, top - 40);
+      ctx.save();
+      ctx.translate(x, top + gridWidth + 16);
+      ctx.rotate(-0.55);
+      ctx.textAlign = "right";
+      ctx.fillText(compactLabel(label, 10), 0, 0);
+      ctx.restore();
+      ctx.textAlign = "right";
+      ctx.fillText(compactLabel(label, width < 720 ? 8 : 11), left - 8, y + 4);
     });
-  });
+
+    matrixValues.forEach((row, rowIndex) => {
+      row.forEach((value, colIndex) => {
+        const count = Number(value || 0);
+        const intensity = Math.max(0.05, Math.min(1, count / maxValue));
+        const x = left + colIndex * cell;
+        const y = top + rowIndex * cell;
+        ctx.fillStyle = color(intensity);
+        ctx.fillRect(x, y, cell - 1, cell - 1);
+        if (cell > 30 || count > 0) {
+          const rowPct = count / Math.max(1, rowTotals[rowIndex] || 1);
+          ctx.fillStyle = intensity > 0.55 ? "#061014" : palette.ink;
+          ctx.font = `${cell < 40 ? "9px" : "800 11px"} Inter, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillText(String(count), x + cell / 2, y + cell / 2 - (cell > 44 ? 3 : -3));
+          if (cell > 44) {
+            ctx.font = "9px Inter, sans-serif";
+            ctx.fillText(pct(rowPct, 0), x + cell / 2, y + cell / 2 + 12);
+          }
+        }
+      });
+    });
+  };
+
+  if (hasPair && width > 760) {
+    const top = 72;
+    const bottomPad = 92;
+    const gap = 24;
+    const sideWidth = (width - gap - 40) / 2;
+    const sideHeight = height - top - bottomPad;
+    ctx.save();
+    ctx.translate(18, top + sideHeight / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = palette.muted;
+    ctx.font = "800 11px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("True label", 0, 0);
+    ctx.restore();
+    drawOneMatrix("Existing baseline", matrices.baseline, { left: 26, top, width: sideWidth, height: sideHeight }, (intensity) => `rgba(104, 121, 137, ${0.10 + intensity * 0.78})`);
+    drawOneMatrix("Full proposed", matrices.proposed, { left: 26 + sideWidth + gap, top, width: sideWidth, height: sideHeight }, (intensity) => `rgba(37, 199, 189, ${0.10 + intensity * 0.82})`);
+    return;
+  }
+
+  drawOneMatrix("Full proposed confusion matrix", { labels: cleanLabels, matrix: cleanMatrix }, {
+    left: width < 720 ? 86 : 120,
+    top: 72,
+    width: width - (width < 720 ? 102 : 136),
+    height: height - 160,
+  }, (intensity) => `rgba(37, 199, 189, ${0.10 + intensity * 0.82})`);
 }
 
 function drawThresholdRejection(id, histogram, analytics) {
@@ -1203,6 +1377,9 @@ function drawThresholdRejection(id, histogram, analytics) {
   const maxValue = Math.max(1, ...values.map(Number));
   const plot = chartPlot(width, height, 54, 22, 28, 74);
   drawAxes(ctx, width, height, plot, maxValue);
+  const thresholdX = plot.left + Math.max(0, Math.min(1, threshold)) * plot.width;
+  ctx.fillStyle = "rgba(201, 79, 61, 0.08)";
+  ctx.fillRect(plot.left, plot.top, Math.max(0, thresholdX - plot.left), plot.height);
   const groupWidth = plot.width / labels.length;
   const barWidth = Math.max(8, Math.min(28, groupWidth * 0.56));
   labels.forEach((label, index) => {
@@ -1221,7 +1398,6 @@ function drawThresholdRejection(id, histogram, analytics) {
     ctx.fillText(label, 0, 0);
     ctx.restore();
   });
-  const thresholdX = plot.left + Math.max(0, Math.min(1, threshold)) * plot.width;
   ctx.strokeStyle = palette.amber;
   ctx.lineWidth = 3;
   ctx.setLineDash([5, 5]);
@@ -1331,17 +1507,20 @@ function drawCoverageRing(id, labels, values) {
   ctx.fillText(`${labels[0] || "True attacks"}: ${trueAttacks}`, 24, 24);
 }
 
-function drawReliabilityCurve(id, bins) {
+function drawReliabilityCurve(id, calibration) {
   const setup = setupCanvas(id);
   if (!setup) return;
   const { ctx, width, height } = setup;
-  const points = (bins || [])
+  const payload = Array.isArray(calibration) ? { proposed: { bins: calibration } } : calibration || {};
+  const makePoints = (bins) => (bins || [])
     .filter((bin) => Number(bin.count || 0) > 0)
     .map((bin) => Number.isFinite(Number(bin.confidence)) && Number.isFinite(Number(bin.accuracy))
       ? { confidence: Number(bin.confidence), accuracy: Number(bin.accuracy) }
       : null)
     .filter(Boolean);
-  if (!points.length) {
+  const baselinePoints = makePoints(payload.baseline?.bins || []);
+  const proposedPoints = makePoints(payload.proposed?.bins || payload.bins || []);
+  if (!baselinePoints.length && !proposedPoints.length) {
     drawNoData(ctx, width, height, "Calibration bins unavailable for this context");
     return;
   }
@@ -1354,12 +1533,25 @@ function drawReliabilityCurve(id, bins) {
   ctx.lineTo(plot.right, plot.top);
   ctx.stroke();
   ctx.setLineDash([]);
-  const scaled = points.map((bin) => scalePoint(plot, bin.confidence, bin.accuracy, 0, 1, 0, 1));
-  drawSmoothLine(ctx, scaled, palette.teal, 3);
-  scaled.forEach((point) => drawPoint(ctx, point, palette.teal, 4));
+  const drawCalibrationSeries = (points, color, widthLine) => {
+    const scaled = points.map((bin) => scalePoint(plot, bin.confidence, bin.accuracy, 0, 1, 0, 1));
+    drawSmoothLine(ctx, scaled, color, widthLine);
+    scaled.forEach((point) => drawPoint(ctx, point, color, 3.5));
+  };
+  ctx.setLineDash([5, 4]);
+  drawCalibrationSeries(baselinePoints, palette.baseline, 2.2);
+  ctx.setLineDash([]);
+  drawCalibrationSeries(proposedPoints, palette.teal, 3.2);
+  const ece = payload.proposed?.ece ?? payload.ece;
+  const mce = payload.proposed?.mce ?? payload.mce;
+  ctx.fillStyle = palette.ink;
+  ctx.font = "800 12px Inter, sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(`ECE ${fmt(ece, 3)} / MCE ${fmt(mce, 3)}`, plot.right, plot.top + 12);
   drawLegend(ctx, [
     { name: "Ideal", color: "#c8d2da" },
-    { name: "Observed", color: palette.teal },
+    { name: "Baseline", color: palette.baseline },
+    { name: "Proposed", color: palette.teal },
   ], plot.left, 13);
   ctx.fillStyle = palette.muted;
   ctx.font = "12px Inter, sans-serif";
@@ -1444,9 +1636,14 @@ function drawRobustnessBars(id, rows) {
     ctx.fillStyle = palette.ink;
     ctx.font = "800 11px Inter, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(pct(row.existing, 0), existingX, y - 11);
-    ctx.fillText(pct(row.proposed, 0), proposedX, y - 11);
+    ctx.fillText(formatRobustnessValue(row), existingX, y - 11);
+    ctx.fillText(formatRobustnessValue(row, "proposed"), proposedX, y - 11);
   });
+}
+
+function formatRobustnessValue(row, side = "existing") {
+  const value = Number(row[side] || 0);
+  return row.kind === "relative" ? fmt(value, value >= 10 ? 0 : 2) : pct(value, 0);
 }
 
 function drawLegend(ctx, series, x, y, maxWidth = 520) {
@@ -1510,13 +1707,14 @@ function updateFigureCaptions() {
     rocAuc ? deltaPhrase(rocAuc.delta, "higher", "ROC-AUC") : "ROC-AUC unavailable",
     prAuc ? deltaPhrase(prAuc.delta, "higher", "PR-AUC") : "PR-AUC unavailable",
   ].join(". ") + ".");
-  setText("#per-class-caption", "Per-class F1 is computed from the live backend reports; proposed bars are separated from the existing baseline for reviewer readability.");
-  setText("#confusion-caption", `Proposed confusion matrix for ${state.research?.limit || "--"} flows; UNKNOWN appears only when confidence rejection fires.`);
+  setText("#per-class-caption", "Per-class F1 is sorted by backend-computed improvement and attack importance; delta labels show the gain used in the publication view.");
+  setText("#confusion-caption", `Baseline and proposed matrices share ${state.research?.limit || "--"} flows; cells show counts and row percentages, with UNKNOWN added when rejection fires.`);
   setText("#roc-caption", roc.proposed?.auc != null ? `ROC AUC: baseline ${fmt(roc.baseline?.auc, 3)}, proposed ${fmt(roc.proposed?.auc, 3)}.` : "ROC data is not available for this payload.");
   setText("#pr-caption", pr.proposed?.average_precision != null ? `Average precision: baseline ${fmt(pr.baseline?.average_precision, 3)}, proposed ${fmt(pr.proposed?.average_precision, 3)}.` : "Precision-recall data is not available for this payload.");
-  setText("#confidence-caption", "Confidence distribution from the current window; lower-confidence mass motivates rejection instead of forced labels.");
+  setText("#confidence-caption", "Confidence distribution is split into accepted flows, rejected labelled attacks, and false-rejected known traffic.");
   setText("#threshold-caption", `Tau=${fmt(analytics.unknown_threshold, 2)} rejects ${pct(unknownRate, 1)} of flows as UNKNOWN; this is an abstention mechanism, not a claimed correct classification.`);
-  setText("#calibration-caption", "Reliability bins come from the validation-style novelty endpoint; use them as calibration evidence, not external-test proof.");
+  const cal = charts.calibration_curve?.proposed || charts.calibration_curve || {};
+  setText("#calibration-caption", `Calibration is backend-computed for the current window; proposed ECE ${fmt(cal.ece, 3)} and MCE ${fmt(cal.mce, 3)}.`);
   setText("#ablation-caption", [
     precision ? deltaPhrase(precision.delta, "higher", "Precision") : "Precision unavailable",
     recall ? deltaPhrase(recall.delta, "higher", "Recall") : "Recall unavailable",
@@ -1525,9 +1723,9 @@ function updateFigureCaptions() {
   ].filter(Boolean).join(". ") + ".");
   const attackGain = charts.attack_recall_gain || {};
   setText("#attack-gain-caption", `Attack-wise recall is shown per labelled class; maximum class lift is ${pct(Math.max(0, ...(attackGain.values || [0]).map(Number)), 1)}.`);
-  setText("#unknown-detection-caption", `Adaptive UNKNOWN review captures ${pct(charts.unknown_attack_detection?.values?.[1] || 0, 1)} of labelled attack flows for analyst review.`);
+  setText("#unknown-detection-caption", `Adaptive UNKNOWN review captures ${pct(charts.open_set_evaluation?.unknown_detection_rate ?? charts.unknown_attack_detection?.values?.[1] ?? 0, 1)} of the internal open-set attack proxy while reporting known false rejection.`);
   setText("#latency-throughput-caption", "Latency is measured per backend flow; throughput is derived from the same live timing.");
-  setText("#rule-trigger-caption", "Triggered and applied counts show which symbolic rules materially changed predictions.");
+  setText("#rule-trigger-caption", "Normalized triggered and applied frequencies show which symbolic rules materially changed predictions.");
 }
 
 function renderPublicationNotes() {
