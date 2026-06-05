@@ -1,0 +1,95 @@
+{
+  "created_at": "2026-06-03T13:43:38",
+  "metadata": {
+    "dashboard": "uncertainty-aware-nids",
+    "exported_from": "http://127.0.0.1:5000/",
+    "export_scale": 3,
+    "figure_source": "current live backend payload",
+    "context": {
+      "window": 600,
+      "flow": 20725,
+      "alpha": 0.65,
+      "beta": 0.35,
+      "fusion": "hard",
+      "seed": 60
+    },
+    "parameter_hash": "72f94f70924ebca1"
+  },
+  "saved": [
+    {
+      "name": "01_metric_trends",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\01_01_metric_trends.png",
+      "bytes": 494554
+    },
+    {
+      "name": "02_existing_vs_proposed_metrics",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\02_02_existing_vs_proposed_metrics.png",
+      "bytes": 208097
+    },
+    {
+      "name": "03_per_class_f1",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\03_03_per_class_f1.png",
+      "bytes": 258806
+    },
+    {
+      "name": "04_confusion_matrix",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\04_04_confusion_matrix.png",
+      "bytes": 498423
+    },
+    {
+      "name": "05a_roc_curve",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\05_05a_roc_curve.png",
+      "bytes": 317967
+    },
+    {
+      "name": "05b_precision_recall_curve",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\06_05b_precision_recall_curve.png",
+      "bytes": 314870
+    },
+    {
+      "name": "06a_confidence_distribution",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\07_06a_confidence_distribution.png",
+      "bytes": 131861
+    },
+    {
+      "name": "06b_threshold_rejection",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\08_06b_threshold_rejection.png",
+      "bytes": 215859
+    },
+    {
+      "name": "07_reliability_calibration",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\09_07_reliability_calibration.png",
+      "bytes": 223027
+    },
+    {
+      "name": "08_ablation_summary",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\10_08_ablation_summary.png",
+      "bytes": 212157
+    },
+    {
+      "name": "09_attack_wise_recall_gain",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\11_09_attack_wise_recall_gain.png",
+      "bytes": 234836
+    },
+    {
+      "name": "10_unknown_attack_detection",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\12_10_unknown_attack_detection.png",
+      "bytes": 131613
+    },
+    {
+      "name": "11_latency_throughput",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\13_11_latency_throughput.png",
+      "bytes": 111593
+    },
+    {
+      "name": "12_rule_trigger_analysis",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\14_12_rule_trigger_analysis.png",
+      "bytes": 210690
+    },
+    {
+      "name": "13_robustness_detail",
+      "file": "C:\\NeuroSymbolic_NFBoTIoT\\results\\dashboard_chart_exports\\charts_20260603_134338_638538\\15_13_robustness_detail.png",
+      "bytes": 482090
+    }
+  ]
+}

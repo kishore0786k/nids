@@ -310,9 +310,16 @@ def build_package(
     flow_index: int = 0,
 ) -> dict:
     ensure_dirs()
-    overview = engine.overview_data()
     backend = engine.backend_status()
     evaluation_limit = backend["test_rows"] if limit is None else limit
+    overview = engine.overview_data(
+        window_size=evaluation_limit,
+        flow_index=flow_index,
+        alpha=alpha,
+        beta=beta,
+        fusion_mode=fusion_mode,
+        seed=seed,
+    )
     params = {
         "window_size": evaluation_limit,
         "flow_index": flow_index,
@@ -323,7 +330,14 @@ def build_package(
     }
     charts = engine.chart_data(**params)
     ablation = engine.ablation_data(**params)
-    novelty = engine.novelty_data(evaluation_limit, min(0.40, max(0.01, alpha)), flow_index=flow_index, seed=seed)
+    novelty = engine.novelty_data(
+        evaluation_limit,
+        min(0.40, max(0.01, alpha)),
+        flow_index=flow_index,
+        seed=seed,
+        beta=beta,
+        fusion_mode=fusion_mode,
+    )
     figures = generate_figures(charts)
     write_tex_files(overview, charts, backend, ablation, novelty)
 
